@@ -22,7 +22,13 @@ export default function Login() {
     setLoading(false);
     if (res.ok) {
       toast.success(`Welcome back, ${res.user.name}`);
-      navigate(from || (res.user.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
+      const fallback = res.user.role === "admin" ? "/admin" : "/dashboard";
+      // Don't send admin to importer routes (or importer to admin routes) via stale `from`
+      const safeFrom = from && (
+        (res.user.role === "admin" && from.startsWith("/admin")) ||
+        (res.user.role !== "admin" && from.startsWith("/dashboard"))
+      ) ? from : null;
+      navigate(safeFrom || fallback, { replace: true });
     } else {
       toast.error(res.error);
     }
