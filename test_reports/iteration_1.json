@@ -1,0 +1,41 @@
+{
+  "summary": "End-to-end test of JDOM Universal Concept API + frontend. Backend: 31/31 pytest cases passed covering auth/leads/applications/documents/testimonials/gallery/admin RBAC/tracking/google session endpoint. Frontend: homepage, lead form multi-step, register, apply-agent + file upload + my applications, admin login auth all working. One frontend redirect bug found for admin users.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "CORSMiddleware", "issue": "allow_credentials=False with allow_origins=['*'] — cookies set with secure+samesite=None won't be persisted by browsers cross-origin. Bearer flow works (frontend uses it), but cookie-based auth advertised in /auth/me will not actually function from browser. Recommend restricting allow_origins and setting allow_credentials=True if cookies are intended for primary auth, or document that cookies are a no-op."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login.jsx (line 25)", "issue": "After admin login, navigate(from || ...) honors `from` from location state. If admin lands on /login after being on /dashboard/* (e.g. importer logged out then admin signs in), admin is redirected to /dashboard/* and sees importer DashboardLayout with role='importer' instead of /admin. Fix: if user.role==='admin' always navigate('/admin') OR validate that `from` matches the role. Observed in test screenshot: admin user 'JDOM Admin' shown on /dashboard/applications with importer sidebar.", "selector": "data-testid=login-submit-btn", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_jdom_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix Login.jsx redirect: when res.user.role === 'admin', always navigate('/admin', { replace: true }) — do not honor `from` if it points to an importer-only route.",
+    "Consider tightening CORS: either remove allow_credentials cookie code path OR set allow_origins=[FRONTEND_URL] with allow_credentials=True. Current config makes cookie auth a no-op in real browsers; Bearer auth is what frontend actually uses."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 720 lines — acceptable for MVP but starting to mix concerns (auth/leads/apps/docs/admin). Consider splitting into routers for maintainability.",
+    "send_admin_email is sync (not awaited) inside async handlers — blocks event loop during SendGrid HTTP call. Wrap in run_in_executor or use httpx async.",
+    "Admin seed: on startup, if password matches existing hash, role is NOT force-synced to 'admin' (line 690 only updates when password mismatch). Edge case: if someone manually changes admin role in DB, it won't be restored.",
+    "documents/{id} returns full base64 inline — consider streaming for large files; size_bytes computed from len*3/4 is an approximation (ignores padding).",
+    "CORS allow_origins=['*'] with allow_credentials=False is OK for Bearer-only, but mismatched with cookies being set in code."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_jdom_api.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "~90% (1 HIGH bug: admin post-login redirect)"},
+  "test_credentials": "Admin: admin@jdomuniversal.live / admin@jdom (verified working). Importer: created via /api/auth/register at runtime.",
+  "seed_data_creation": "Test data prefixed TEST_; testimonials seeded by backend on startup; one TEST lead, one TEST application + document created via API and one via UI. No cleanup performed (B2B platform — minor noise).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_jdom_api.py covers all critical endpoints with auth + RBAC. Just run: pytest /app/backend/tests/ -v. For frontend retest, the importer-side sidebar testids are: side-apply-agent, side-my-applications, side-document-vault (NOT side-documents), side-track-shipment. Admin-side: side-leads, side-applications, side-importers, side-testimonials, side-gallery. The admin redirect bug can be reproduced by: (a) register importer (lands /dashboard), (b) logout, (c) go /login with location state, (d) login as admin -> ends up on /dashboard not /admin.",
+  "rca of the issue": "Admin redirect bug: Login.jsx line 25 — navigate(from || (res.user.role === 'admin' ? '/admin' : '/dashboard'), { replace: true }) — `from` comes from React Router location.state set by ProtectedRoute when redirecting unauthenticated user. After importer logout then admin login attempted from prior context, `from` still points to /dashboard/*. Since `from` is truthy, the admin-role check is bypassed. Fix: const fallback = res.user.role === 'admin' ? '/admin' : '/dashboard'; const safeFrom = (res.user.role === 'admin' && from?.startsWith('/dashboard')) ? null : from; navigate(safeFrom || fallback, { replace: true });"
+}
