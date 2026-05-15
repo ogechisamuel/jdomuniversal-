@@ -1,0 +1,90 @@
+{
+  "theme": "Light Theme",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) + Archetype 5 (Jewel & Luxury)",
+  "colors": {
+    "primary": "#0B1F3A",
+    "secondary": "#D4AF37",
+    "background_light": "#FFFFFF",
+    "background_gray": "#F8F9FA",
+    "text_dark": "#1A202C",
+    "text_light": "#FFFFFF",
+    "border": "#E2E8F0",
+    "accent_hover": "#F0C850",
+    "primary_hover": "#1E3A68"
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit",
+      "body": "Satoshi",
+      "mono": "JetBrains Mono"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-none",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight leading-tight",
+      "h3": "text-xl sm:text-2xl leading-snug",
+      "h4": "text-lg sm:text-xl",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm tracking-wide"
+    }
+  },
+  "spacing_and_layout": {
+    "spacing_system": "Generous spacing. p-6 or p-8 inside cards to avoid collision. py-20, py-24, or py-32 for marketing sections.",
+    "marketing_pages": "Bento grids, overlapping elements. Use Mode A (Tetris Grid) with gap-8 to gap-12.",
+    "dashboards": "Mode B (Control Room Grid). Strict hierarchy, grid-cols-1 md:grid-cols-3 lg:grid-cols-4 with gap-4 or gap-6. Direct children strictly for grid items."
+  },
+  "components_instructions": {
+    "general": "Use Shadcn components for forms, inputs, selects, dialogs. Never use native select/input.",
+    "cards": "Subtle border (1px solid #E2E8F0), flat background. Hover: shadow-lg -translate-y-1. Do not overuse cards.",
+    "buttons": "CTA primary must be Gold (#D4AF37) with Navy Blue text for contrast, or Navy Blue (#0B1F3A) with White text. Hover state must have explicit text color. Ensure 3:1 contrast ratio.",
+    "navigation": "Header must have z-50. Do not use transparent background. Use glassmorphism or solid white/gray.",
+    "data_test_id": "All interactive elements MUST include a data-testid attribute in kebab-case."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Required on all interactive elements. Explicitly set text color on hover.",
+    "transitions": "transition-all duration-200 ease-out"
+  },
+  "media_and_images": {
+    "hero_image": {
+      "url": "https://images.unsplash.com/photo-1605745341112-85968b19335b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwzfHxjYXJnbyUyMHBvcnQlMjBjb250YWluZXJzJTIwc2hpcHxlbnwwfHx8fDE3Nzg4NzM4NjV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Hero section showing cargo port/containers.",
+      "overlay": "bg-[#0B1F3A]/60 for text readability"
+    },
+    "industry_oil_gas": {
+      "url": "https://images.unsplash.com/photo-1588011930968-eadac80e6a5a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxvaWwlMjBnYXMlMjBpbmR1c3RyaWFsJTIwZXF1aXBtZW50fGVufDB8fHx8MTc3ODg3Mzg2NXww&ixlib=rb-4.1.0&q=85",
+      "description": "Oil & Gas industrial equipment card."
+    },
+    "industry_textiles": {
+      "url": "https://images.unsplash.com/photo-1718117059204-8380b0706219?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwyfHx0ZXh0aWxlcyUyMGdhcm1lbnRzJTIwZmFicmljJTIwbWFudWZhY3R1cmluZ3xlbnwwfHx8fDE3Nzg4NzM4NzN8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Garments & Textiles card."
+    },
+    "industry_ppe": {
+      "url": "https://images.unsplash.com/photo-1612787114413-a5e60ede7db8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MDZ8MHwxfHNlYXJjaHwyfHxwcGUlMjBwZXJzb25hbCUyMHByb3RlY3RpdmUlMjBlcXVpcG1lbnQlMjBjb25zdHJ1Y3Rpb258ZW58MHx8fHwxNzc4ODczODczfDA&ixlib=rb-4.1.0&q=85",
+      "description": "PPE / Safety equipment card."
+    },
+    "gallery_1": {
+      "url": "https://images.unsplash.com/photo-1763951515641-12637c29d176?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwzfHxsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjB3b3JrZXJzfGVufDB8fHx8MTc3ODg3Mzg2NXww&ixlib=rb-4.1.0&q=85",
+      "description": "Real Work Gallery 1."
+    },
+    "gallery_2": {
+      "url": "https://images.unsplash.com/photo-1573207535342-8c0f9506112e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHxsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjB3b3JrZXJzfGVufDB8fHx8MTc3ODg3Mzg2NXww&ixlib=rb-4.1.0&q=85",
+      "description": "Real Work Gallery 2."
+    },
+    "gallery_3": {
+      "url": "https://images.unsplash.com/photo-1772298783095-be38fa901232?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwyfHxsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjB3b3JrZXJzfGVufDB8fHx8MTc3ODg3Mzg2NXww&ixlib=rb-4.1.0&q=85",
+      "description": "Real Work Gallery 3."
+    }
+  },
+  "icons": {
+    "library": "lucide-react",
+    "instructions": "Use lucide-react for all standard icons."
+  },
+  "instructions_to_main_agent": [
+    "Design a premium, industrial-feeling app for JDOM Universal Concept Ltd using Navy Blue (#0B1F3A) and Gold (#D4AF37).",
+    "Marketing pages (Home, About, Resources) should use large typography, bento grids, and high-impact hero sections. Dark overlay for hero text readability is critical.",
+    "Dashboard must be built with an intense focus on scanability. Navy Blue sidebar, white background for main area.",
+    "Include 'data-testid' attributes on all CTA buttons, form inputs, and links.",
+    "Do NOT use HTML native inputs. Use Shadcn components for forms.",
+    "Do NOT center align text in paragraphs. Use left-alignment for dense content.",
+    "Follow contrast accessibility standards for Gold text/buttons on Light and Dark backgrounds. When gold button is used, use navy text. When navy button is used, use white text."
+  ]
+}
