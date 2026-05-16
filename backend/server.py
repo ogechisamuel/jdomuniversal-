@@ -81,20 +81,75 @@ def clear_auth_cookies(response: Response):
 
 
 def send_admin_email(subject: str, html: str):
-    """Send email via SendGrid. Silently log failures."""
-    api_key = os.environ.get("SENDGRID_API_KEY", "")
-    sender = os.environ.get("SENDER_EMAIL", "noreply@jdomuniversal.live")
-    to = os.environ.get("ADMIN_NOTIFICATION_EMAIL", sender)
-    if not api_key:
-        logger.warning(f"[email skipped: no SENDGRID_API_KEY] {subject}")
+    """Send email to admin notification address via SendGrid. Silently log failures."""
+    to = os.environ.get("ADMIN_NOTIFICATION_EMAIL") or os.environ.get("SENDER_EMAIL", "")
+    if not to:
+        logger.warning(f"[email skipped: no admin recipient] {subject}")
         return
+    send_email(to, subject, html)
+
+
+def send_email(to_email: str, subject: str, html: str):
+    """Send an arbitrary email via SendGrid. Returns True on success."""
+    api_key = os.environ.get("SENDGRID_API_KEY", "")
+    sender = os.environ.get("SENDER_EMAIL", "noreply@jdomuniversal.online")
+    if not api_key:
+        logger.warning(f"[email skipped: no SENDGRID_API_KEY] to={to_email} subj={subject}")
+        return False
     try:
-        msg = Mail(from_email=sender, to_emails=to, subject=subject, html_content=html)
+        msg = Mail(from_email=sender, to_emails=to_email, subject=subject, html_content=html)
         sg = SendGridAPIClient(api_key)
         r = sg.send(msg)
-        logger.info(f"SendGrid status {r.status_code} for: {subject}")
+        logger.info(f"SendGrid status {r.status_code} to={to_email} subj={subject}")
+        return 200 <= r.status_code < 300
     except Exception as e:
-        logger.error(f"SendGrid failure: {e}")
+        logger.error(f"SendGrid failure to={to_email}: {e}")
+        return False
+
+
+STATUS_COPY = {
+    "pending":    {"label": "Pending",    "color": "#B45309", "msg": "Your clearing application has been received and is in our review queue. A JDOM broker will reach out shortly."},
+    "processing": {"label": "Processing", "color": "#1D4ED8", "msg": "Good news — your application is now actively being processed at the port. Our agents are filing documentation on your behalf."},
+    "cleared":    {"label": "Cleared",    "color": "#047857", "msg": "Your cargo has been cleared by Nigerian Customs. Please coordinate pickup or last-mile delivery."},
+}
+
+
+def build_status_email_html(user_name: str, app_doc: dict, custom_message: Optional[str] = None) -> str:
+    s = STATUS_COPY.get(app_doc.get("status", "pending"), STATUS_COPY["pending"])
+    tracking = app_doc.get("tracking_number") or "—"
+    track_status = app_doc.get("tracking_status") or "—"
+    admin_notes = app_doc.get("admin_notes") or ""
+    extra = f"<div style='margin-top:18px;padding:14px;border-left:4px solid #D4AF37;background:#FBF5DD;color:#1A202C;font-size:14px'>{custom_message}</div>" if custom_message else ""
+    notes = f"<p style='font-size:13px;color:#475569;margin-top:18px'><strong>Notes from your broker:</strong><br/>{admin_notes}</p>" if admin_notes else ""
+    return f"""
+    <div style='font-family:Arial,sans-serif;background:#F8F9FA;padding:24px'>
+      <div style='max-width:560px;margin:0 auto;background:#fff;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden'>
+        <div style='background:#0B1F3A;padding:24px;color:#fff'>
+          <div style='color:#D4AF37;text-transform:uppercase;letter-spacing:.18em;font-size:11px'>JDOM Universal Concept</div>
+          <h1 style='margin:8px 0 0;font-size:22px'>Application update</h1>
+        </div>
+        <div style='padding:24px;color:#1A202C'>
+          <p>Hello {user_name},</p>
+          <p>Your clearing application status has been updated.</p>
+          <div style='margin:18px 0;padding:14px;border:1px solid #E2E8F0;border-radius:8px'>
+            <table style='width:100%;font-size:14px;color:#1A202C'>
+              <tr><td style='padding:4px 0;color:#475569'>Cargo</td><td style='padding:4px 0;text-align:right'><strong>{app_doc.get('cargo_type','')}</strong></td></tr>
+              <tr><td style='padding:4px 0;color:#475569'>Port</td><td style='padding:4px 0;text-align:right'><strong>{app_doc.get('port','')}</strong></td></tr>
+              <tr><td style='padding:4px 0;color:#475569'>Containers</td><td style='padding:4px 0;text-align:right'><strong>{app_doc.get('containers','')}</strong></td></tr>
+              <tr><td style='padding:4px 0;color:#475569'>Tracking #</td><td style='padding:4px 0;text-align:right;font-family:monospace'>{tracking}</td></tr>
+              <tr><td style='padding:4px 0;color:#475569'>Latest update</td><td style='padding:4px 0;text-align:right'>{track_status}</td></tr>
+              <tr><td style='padding:8px 0 0;color:#475569'>Status</td><td style='padding:8px 0 0;text-align:right'><span style='background:{s["color"]};color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;text-transform:uppercase;letter-spacing:.08em'>{s["label"]}</span></td></tr>
+            </table>
+          </div>
+          <p style='color:#1A202C;font-size:14px'>{s["msg"]}</p>
+          {extra}
+          {notes}
+          <p style='margin-top:24px;font-size:13px;color:#475569'>Need to chat? <a href='https://wa.me/message/KWLEOBTILCU7H1' style='color:#0B1F3A;text-decoration:underline'>WhatsApp our desk</a> or sign in to your dashboard.</p>
+        </div>
+        <div style='background:#0B1F3A;color:#94A3B8;padding:14px 24px;font-size:11px;text-align:center'>JDOM Universal Concept · Apapa · Tin Can · Onne</div>
+      </div>
+    </div>
+    """
 
 
 # ---------------- Models ----------------
@@ -208,6 +263,12 @@ class ApplicationUpdate(BaseModel):
     admin_notes: Optional[str] = None
     tracking_number: Optional[str] = None
     tracking_status: Optional[str] = None
+    notify_importer: bool = True  # auto-send email when status changes
+
+
+class AdminNotifyRequest(BaseModel):
+    subject: str = Field(min_length=3, max_length=140)
+    message: str = Field(min_length=3)
 
 
 class LeadUpdate(BaseModel):
@@ -668,14 +729,46 @@ async def admin_list_applications(_: dict = Depends(require_admin)):
 @api.patch("/admin/applications/{application_id}")
 async def admin_update_application(application_id: str, payload: ApplicationUpdate,
                                    _: dict = Depends(require_admin)):
-    update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    existing = await db.applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Application not found")
+    update = {k: v for k, v in payload.model_dump(exclude={"notify_importer"}, exclude_none=True).items()}
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
-    res = await db.applications.update_one({"application_id": application_id}, {"$set": update})
-    if res.matched_count == 0:
+    await db.applications.update_one({"application_id": application_id}, {"$set": update})
+
+    status_changed = "status" in update and update["status"] != existing.get("status")
+    email_sent = False
+    if status_changed and payload.notify_importer:
+        merged = {**existing, **update}
+        html = build_status_email_html(existing.get("user_name", ""), merged)
+        subject = f"JDOM Update · {STATUS_COPY[merged['status']]['label']} · {existing.get('cargo_type','')}"
+        email_sent = send_email(existing["user_email"], subject, html)
+
+    return {"ok": True, "status_changed": status_changed, "email_sent": email_sent}
+
+
+@api.post("/admin/applications/{application_id}/notify")
+async def admin_notify_importer(application_id: str, payload: AdminNotifyRequest,
+                                _: dict = Depends(require_admin)):
+    app_doc = await db.applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app_doc:
         raise HTTPException(status_code=404, detail="Application not found")
-    return {"ok": True}
+    html = build_status_email_html(app_doc.get("user_name", ""), app_doc, custom_message=payload.message)
+    ok = send_email(app_doc["user_email"], payload.subject, html)
+    # Log the notification for audit trail
+    await db.application_notifications.insert_one({
+        "application_id": application_id,
+        "user_email": app_doc["user_email"],
+        "subject": payload.subject,
+        "message": payload.message,
+        "sent": bool(ok),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    if not ok:
+        raise HTTPException(status_code=502, detail="Email could not be sent. Check SendGrid configuration.")
+    return {"ok": True, "sent": True}
 
 
 @api.get("/admin/stats")
