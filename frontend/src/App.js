@@ -31,6 +31,7 @@ import AdminApplications from "@/pages/admin/AdminApplications";
 import AdminImporters from "@/pages/admin/AdminImporters";
 import AdminTestimonials from "@/pages/admin/AdminTestimonials";
 import AdminGallery from "@/pages/admin/AdminGallery";
+import AdminTemplates from "@/pages/admin/AdminTemplates";
 
 function PublicShell() {
   return (
@@ -86,6 +87,7 @@ function AppRouter() {
         <Route path="importers" element={<AdminImporters />} />
         <Route path="testimonials" element={<AdminTestimonials />} />
         <Route path="gallery" element={<AdminGallery />} />
+        <Route path="templates" element={<AdminTemplates />} />
       </Route>
     </Routes>
   );

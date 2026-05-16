@@ -18,6 +18,7 @@ const adminLinks = [
   { to: "/admin/leads", label: "Leads", icon: MessagesSquare },
   { to: "/admin/applications", label: "Applications", icon: ClipboardList },
   { to: "/admin/importers", label: "Importers", icon: Users },
+  { to: "/admin/templates", label: "Templates", icon: MessageSquareText },
   { to: "/admin/testimonials", label: "Testimonials", icon: ShieldCheck },
   { to: "/admin/gallery", label: "Gallery", icon: Images },
 ];

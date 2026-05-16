@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import api, { formatApiError } from "@/lib/api";
-import { NOTIFICATION_TEMPLATES, applyTemplateVars } from "@/lib/notificationTemplates";
+import { applyTemplateVars } from "@/lib/notificationTemplates";
 
 const STATUS = ["pending", "processing", "cleared"];
 
@@ -60,27 +60,31 @@ function ApplicationRow({ a, onSaved }) {
   const [notice, setNotice] = useState({ subject: "", message: "", template_key: "" });
   const [channel, setChannel] = useState("email");
   const [history, setHistory] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [userPhone, setUserPhone] = useState(null);
   const [saving, setSaving] = useState(false);
   const [notifying, setNotifying] = useState(false);
   const [open, setOpen] = useState(false);
 
-  // Load notification history + importer phone when dialog opens
+  // Load notification history + importer phone + templates when dialog opens
   useEffect(() => {
     if (!open) return;
     api.get(`/admin/applications/${a.application_id}/notifications`).then((r) => setHistory(r.data || [])).catch(() => {});
     api.get(`/admin/applications/${a.application_id}/details`).then((r) => setUserPhone(r.data?.user?.phone || null)).catch(() => {});
+    api.get(`/admin/templates`).then((r) => setTemplates(r.data || [])).catch(() => {});
   }, [open, a.application_id]);
 
-  const applyTemplate = (key) => {
-    const tpl = NOTIFICATION_TEMPLATES.find((t) => t.key === key);
+  const applyTemplate = (id) => {
+    const tpl = templates.find((t) => t.template_id === id);
     if (!tpl) { setNotice({ subject: "", message: "", template_key: "" }); return; }
     setNotice({
-      template_key: key,
+      template_key: tpl.template_id,
       subject: applyTemplateVars(tpl.subject, a),
       message: applyTemplateVars(tpl.body, a),
     });
   };
+
+  const availableTemplates = templates.filter((t) => t.channel === "both" || t.channel === channel);
 
   const save = async () => {
     setSaving(true);
@@ -219,17 +223,17 @@ function ApplicationRow({ a, onSaved }) {
                   <Label className="text-navy">Choose a template</Label>
                   <Select value={notice.template_key} onValueChange={applyTemplate}>
                     <SelectTrigger data-testid="notify-template" className="mt-1.5">
-                      <SelectValue placeholder="Pick a predefined message or type your own below" />
+                      <SelectValue placeholder={availableTemplates.length ? "Pick a predefined message or type your own below" : "No templates available for this channel"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {NOTIFICATION_TEMPLATES.map((t) => (
-                        <SelectItem key={t.key} value={t.key} data-testid={`tpl-${t.key}`}>
+                      {availableTemplates.map((t) => (
+                        <SelectItem key={t.template_id} value={t.template_id} data-testid={`tpl-${t.template_id}`}>
                           <span className="inline-flex items-center gap-2"><FileText className="h-3.5 w-3.5 text-gold-700" /> {t.label}</span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-navy/55 mt-1.5">Variables like {"{{name}}"}, {"{{cargo_type}}"}, {"{{port}}"} auto-fill from the application. You can still edit before sending.</p>
+                  <p className="text-xs text-navy/55 mt-1.5">Variables like {"{{name}}"}, {"{{cargo_type}}"}, {"{{port}}"} auto-fill from the application. You can still edit before sending. Manage templates in <strong>Admin → Templates</strong>.</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 p-1 bg-navy-50 rounded-md" role="tablist">

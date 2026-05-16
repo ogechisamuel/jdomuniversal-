@@ -306,6 +306,20 @@ class GalleryItem(BaseModel):
     created_at: datetime
 
 
+class TemplateCreate(BaseModel):
+    label: str = Field(min_length=2, max_length=80)
+    subject: str = Field(min_length=2, max_length=160)
+    body: str = Field(min_length=2)
+    channel: Literal["email", "whatsapp", "both"] = "both"
+
+
+class TemplateUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    subject: Optional[str] = Field(default=None, min_length=2, max_length=160)
+    body: Optional[str] = Field(default=None, min_length=2)
+    channel: Optional[Literal["email", "whatsapp", "both"]] = None
+
+
 # ---------------- Auth Dependency ----------------
 async def get_current_user(request: Request) -> dict:
     # Try JWT (access_token cookie or bearer)
@@ -854,6 +868,45 @@ async def admin_delete_gallery(gallery_id: str, _: dict = Depends(require_admin)
     return {"ok": True}
 
 
+# ---------------- Templates (admin-editable notification messages) ----------------
+@api.get("/admin/templates")
+async def admin_list_templates(_: dict = Depends(require_admin)):
+    items = await db.templates.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api.post("/admin/templates")
+async def admin_create_template(payload: TemplateCreate, _: dict = Depends(require_admin)):
+    template_id = f"tpl_{uuid.uuid4().hex[:12]}"
+    doc = {**payload.model_dump(), "template_id": template_id,
+           "created_at": datetime.now(timezone.utc).isoformat(),
+           "updated_at": datetime.now(timezone.utc).isoformat()}
+    await db.templates.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/admin/templates/{template_id}")
+async def admin_update_template(template_id: str, payload: TemplateUpdate, _: dict = Depends(require_admin)):
+    update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.templates.update_one({"template_id": template_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    doc = await db.templates.find_one({"template_id": template_id}, {"_id": 0})
+    return doc
+
+
+@api.delete("/admin/templates/{template_id}")
+async def admin_delete_template(template_id: str, _: dict = Depends(require_admin)):
+    res = await db.templates.delete_one({"template_id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
 @api.get("/")
 async def root():
     return {"service": "jdom-universal", "ok": True}
@@ -884,6 +937,8 @@ async def on_startup():
     await db.user_sessions.create_index("session_token", unique=True)
     await db.password_reset_tokens.create_index("token", unique=True)
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.templates.create_index("template_id", unique=True)
+    await db.application_notifications.create_index("application_id")
 
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
@@ -927,6 +982,42 @@ async def on_startup():
              "rating": 5, "created_at": now},
         ])
         logger.info("Seeded testimonials")
+
+    # Seed default notification templates if none exist
+    if await db.templates.count_documents({}) == 0:
+        now = datetime.now(timezone.utc).isoformat()
+        defaults = [
+            ("Request PAAR", "email",
+             "PAAR document needed for your {{cargo_type}} shipment",
+             "Hello {{name}},\n\nKindly share your latest PAAR (Pre-Arrival Assessment Report) for the {{cargo_type}} consignment arriving at {{port}}. We need this on file before we can begin filing your clearing documentation.\n\nYou can upload it directly from your JDOM dashboard → Document Vault.\n\nThanks,\nJDOM Clearing Desk"),
+            ("Request Bill of Lading", "email",
+             "Bill of Lading needed — {{cargo_type}}",
+             "Hello {{name}},\n\nPlease send across the signed Bill of Lading for your {{containers}} consignment heading to {{port}}. Once we have it, we can move your application into active processing.\n\nUpload at: dashboard → Document Vault → Bill of Lading.\n\nJDOM Clearing Desk"),
+            ("Request Form M", "email",
+             "Form M required for your shipment",
+             "Hello {{name}},\n\nWe're missing the Form M for your {{cargo_type}} consignment. Without it, customs cannot accept the declaration. Kindly upload at your earliest convenience.\n\nJDOM Clearing Desk"),
+            ("Cargo arrived at port", "both",
+             "Your cargo has arrived at {{port}}",
+             "Hello {{name}},\n\nQuick update — your {{cargo_type}} consignment ({{containers}}) has arrived at {{port}}. Our agent on the ground has visual confirmation and we are now lining up the customs filing.\n\nTracking #: {{tracking_number}}\n\nJDOM Clearing Desk"),
+            ("Processing started", "both",
+             "Customs processing has started",
+             "Hello {{name}},\n\nWe've begun active customs processing for your {{cargo_type}} consignment at {{port}}. You'll get a fresh update from us as soon as the entry is filed.\n\nTracking #: {{tracking_number}}\n\nJDOM Clearing Desk"),
+            ("Cleared — ready for pickup", "both",
+             "Your cargo is cleared and ready",
+             "Hello {{name}},\n\nGreat news — your {{cargo_type}} consignment has been cleared by Nigerian Customs at {{port}}. Please coordinate pickup or last-mile delivery at your convenience.\n\nTracking #: {{tracking_number}}\n\nJDOM Clearing Desk"),
+            ("Demurrage warning", "whatsapp",
+             "Action needed to avoid demurrage",
+             "Hello {{name}},\n\nA quick heads-up: your {{cargo_type}} consignment at {{port}} is approaching free-time expiry. To avoid demurrage charges, please send any outstanding documentation today.\n\nJDOM Clearing Desk"),
+            ("Additional documents requested", "email",
+             "More documents needed for {{cargo_type}}",
+             "Hello {{name}},\n\nCustoms has requested additional supporting documents for your {{cargo_type}} consignment. Kindly reach out on WhatsApp so we can walk you through what's needed.\n\nJDOM Clearing Desk"),
+        ]
+        await db.templates.insert_many([
+            {"template_id": f"tpl_{uuid.uuid4().hex[:12]}", "label": lbl, "channel": ch,
+             "subject": subj, "body": body, "created_at": now, "updated_at": now}
+            for (lbl, ch, subj, body) in defaults
+        ])
+        logger.info(f"Seeded {len(defaults)} default templates")
 
 
 @app.on_event("shutdown")
