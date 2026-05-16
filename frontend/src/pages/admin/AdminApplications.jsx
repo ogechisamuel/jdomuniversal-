@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Save, Download, Loader2, Send, Bell, MessageCircle, Mail, History, FileText, Filter, Users, ExternalLink, Bookmark, BookmarkPlus, X } from "lucide-react";
+import { Save, Download, Loader2, Send, Bell, MessageCircle, Mail, History, FileText, Filter, Users, ExternalLink, Bookmark, BookmarkPlus, X, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,22 @@ export default function AdminApplications() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [filters]);
   useEffect(() => { api.get("/admin/templates").then((r) => setTemplates(r.data || [])); }, []);
-  useEffect(() => { loadPresets(); }, []);
+
+  // Boot: load presets and auto-apply default (if any) on first mount
+  useEffect(() => {
+    api.get("/admin/filter-presets").then((r) => {
+      const list = r.data || [];
+      setPresets(list);
+      const def = list.find((p) => p.is_default);
+      if (def) {
+        setFilters({
+          status: def.status_filter || "all",
+          port: def.port || "all",
+          older_than_days: def.older_than_days != null ? String(def.older_than_days) : "",
+        });
+      }
+    });
+  }, []);
 
   const applyPreset = (p) => {
     setFilters({
@@ -47,6 +62,14 @@ export default function AdminApplications() {
       port: p.port || "all",
       older_than_days: p.older_than_days != null ? String(p.older_than_days) : "",
     });
+  };
+
+  const toggleDefault = async (p) => {
+    try {
+      const { data } = await api.post(`/admin/filter-presets/${p.preset_id}/default`);
+      toast.success(data.is_default ? `"${p.name}" is now the default filter` : `Default cleared`);
+      loadPresets();
+    } catch (e) { toast.error(formatApiError(e)); }
   };
 
   const savePreset = async () => {
@@ -167,16 +190,35 @@ export default function AdminApplications() {
                 p.port,
                 p.older_than_days != null ? `≥ ${p.older_than_days}d` : null,
               ].filter(Boolean).join(" · ") || "all";
+              const isDefault = !!p.is_default;
               return (
-                <div key={p.preset_id} className="group inline-flex items-center gap-2 rounded-full bg-navy-50 hover:bg-navy hover:text-white border border-border px-3 py-1.5 transition-colors cursor-pointer" data-testid={`preset-${p.preset_id}`}>
+                <div
+                  key={p.preset_id}
+                  className={`group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 transition-colors cursor-pointer ${
+                    isDefault
+                      ? "bg-gold/15 border-gold/40 hover:bg-gold/25"
+                      : "bg-navy-50 border-border hover:bg-navy hover:text-white"
+                  }`}
+                  data-testid={`preset-${p.preset_id}`}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleDefault(p); }}
+                    className={isDefault ? "text-gold-700" : "text-navy/30 hover:text-gold-700 group-hover:text-white/60 group-hover:hover:text-gold"}
+                    aria-label={isDefault ? "Unset default" : "Set as default"}
+                    data-testid={`preset-default-${p.preset_id}`}
+                    title={isDefault ? "Default preset · click to unset" : "Set as default (auto-applies on page load)"}
+                  >
+                    <Star className={`h-3.5 w-3.5 ${isDefault ? "fill-gold" : ""}`} />
+                  </button>
                   <button type="button" onClick={() => applyPreset(p)} className="text-sm font-medium" data-testid={`preset-apply-${p.preset_id}`}>
-                    <span className="text-navy group-hover:text-white">{p.name}</span>
-                    <span className="text-[10px] uppercase tracking-widest text-navy/45 group-hover:text-white/60 ml-2">{summary}</span>
+                    <span className={isDefault ? "text-navy" : "text-navy group-hover:text-white"}>{p.name}</span>
+                    <span className={`text-[10px] uppercase tracking-widest ml-2 ${isDefault ? "text-navy/55" : "text-navy/45 group-hover:text-white/60"}`}>{summary}</span>
                   </button>
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); deletePreset(p.preset_id); }}
-                    className="text-navy/40 hover:text-red-500 group-hover:text-white/60 group-hover:hover:text-red-300"
+                    className={isDefault ? "text-navy/40 hover:text-red-500" : "text-navy/40 hover:text-red-500 group-hover:text-white/60 group-hover:hover:text-red-300"}
                     aria-label="Delete preset"
                     data-testid={`preset-delete-${p.preset_id}`}
                   >

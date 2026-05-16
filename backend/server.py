@@ -1090,10 +1090,25 @@ async def admin_list_filter_presets(_: dict = Depends(require_admin)):
 async def admin_create_filter_preset(payload: FilterPresetCreate, _: dict = Depends(require_admin)):
     preset_id = f"prs_{uuid.uuid4().hex[:12]}"
     doc = {**payload.model_dump(), "preset_id": preset_id,
+           "is_default": False,
            "created_at": datetime.now(timezone.utc).isoformat()}
     await db.filter_presets.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+
+@api.post("/admin/filter-presets/{preset_id}/default")
+async def admin_set_default_preset(preset_id: str, _: dict = Depends(require_admin)):
+    target = await db.filter_presets.find_one({"preset_id": preset_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    # Toggle behaviour: if already default, unset; otherwise unset all and set this one
+    if target.get("is_default"):
+        await db.filter_presets.update_one({"preset_id": preset_id}, {"$set": {"is_default": False}})
+        return {"ok": True, "is_default": False}
+    await db.filter_presets.update_many({}, {"$set": {"is_default": False}})
+    await db.filter_presets.update_one({"preset_id": preset_id}, {"$set": {"is_default": True}})
+    return {"ok": True, "is_default": True}
 
 
 @api.delete("/admin/filter-presets/{preset_id}")
