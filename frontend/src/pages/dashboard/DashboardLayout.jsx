@@ -3,6 +3,7 @@ import { LayoutDashboard, FilePlus2, Files, FolderOpen, Truck, LogOut, Users, Me
 import { useAuth } from "@/context/AuthContext";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import Logo from "@/components/Logo";
 
 const importerLinks = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard, end: true },
@@ -35,10 +36,13 @@ export default function DashboardLayout({ role }) {
   return (
     <div className="min-h-screen flex bg-[#F8F9FA]">
       <aside className={`fixed lg:static z-40 inset-y-0 left-0 w-72 bg-navy text-white flex flex-col transition-transform ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
-        <Link to="/" className="flex items-center gap-2 p-6 border-b border-white/10" data-testid="dashboard-brand">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-gold text-navy font-extrabold">J</span>
-          <span className="font-heading font-bold text-lg">JDOM <span className="text-gold">{role === "admin" ? "Admin" : "Portal"}</span></span>
-        </Link>
+        <div className="p-6 border-b border-white/10">
+          <Logo
+            testId="dashboard-brand"
+            wordmarkClassName={`font-heading font-extrabold text-sm tracking-wide text-white`}
+          />
+          <div className="mt-2 text-xs text-gold uppercase tracking-widest pl-14">{role === "admin" ? "Admin Console" : "Importer Portal"}</div>
+        </div>
 
         <div className="p-4">
           <div className="rounded-lg bg-white/5 border border-white/10 p-3 mb-4" data-testid="dashboard-user">

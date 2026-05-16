@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import api, { formatApiError } from "@/lib/api";
+import Logo from "@/components/Logo";
 
 export default function ResetPassword() {
   const [params] = useSearchParams();
@@ -50,16 +51,13 @@ export default function ResetPassword() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-white">
       <div className="hidden lg:flex flex-col justify-between bg-navy text-white p-12 relative overflow-hidden">
-        <Link to="/" className="flex items-center gap-2">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-gold text-navy font-extrabold">J</span>
-          <span className="font-heading font-bold text-lg">JDOM <span className="text-gold">Universal</span></span>
-        </Link>
+        <Logo wordmarkClassName="font-heading font-extrabold text-base tracking-wide text-white" />
         <div className="relative z-10">
           <p className="label-eyebrow text-gold">Secure reset</p>
           <h2 className="font-heading text-4xl mt-3 max-w-md leading-tight">Choose a strong new password.</h2>
           <p className="text-white/70 text-sm mt-4 max-w-sm">Your password is hashed with bcrypt before it ever touches our database.</p>
         </div>
-        <div className="text-xs text-white/40">© {new Date().getFullYear()} JDOM Universal Concept</div>
+        <div className="text-xs text-white/40">© {new Date().getFullYear()} JDOM UNIVERSAL CONCEPT LTD</div>
         <div className="absolute -right-32 -bottom-32 h-96 w-96 rounded-full bg-gold/10 blur-3xl" />
       </div>
 

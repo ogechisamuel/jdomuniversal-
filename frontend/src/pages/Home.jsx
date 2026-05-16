@@ -69,7 +69,7 @@ export default function Home() {
               <span className="text-gold">Oil &amp; Industrial Cargo</span>
             </h1>
             <p className="mt-6 text-white/80 text-base sm:text-lg max-w-2xl leading-relaxed">
-              JDOM Universal Concept Ltd moves Nigeria's most demanding cargo through customs in record time. From oil-rig spares to PPE consignments — handled by veterans with direct port access.
+              JDOM UNIVERSAL CONCEPT LTD moves Nigeria's most demanding cargo through customs in record time. From oil-rig spares to PPE consignments — handled by veterans with direct port access.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <a href="#lead-form" className="btn-gold" data-testid="hero-quote-btn">

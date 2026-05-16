@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Menu, X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
+import Logo from "@/components/Logo";
 
 const links = [
   { to: "/", label: "Home" },
@@ -18,13 +19,8 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 bg-navy text-white border-b border-white/10" data-testid="site-navbar">
-      <div className="container-x flex items-center justify-between h-16">
-        <Link to="/" className="flex items-center gap-2 group" data-testid="brand-link">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-gold text-navy font-heading font-extrabold">J</span>
-          <span className="font-heading font-bold text-lg tracking-wide group-hover:text-gold transition-colors">
-            JDOM <span className="text-gold">Universal</span>
-          </span>
-        </Link>
+      <div className="container-x flex items-center justify-between h-20">
+        <Logo testId="brand-link" wordmarkClassName="hidden sm:block font-heading font-extrabold text-sm md:text-base tracking-wide text-white whitespace-nowrap" />
 
         <nav className="hidden md:flex items-center gap-1">
           {links.map((l) => (

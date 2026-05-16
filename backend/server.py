@@ -125,7 +125,7 @@ def build_status_email_html(user_name: str, app_doc: dict, custom_message: Optio
     <div style='font-family:Arial,sans-serif;background:#F8F9FA;padding:24px'>
       <div style='max-width:560px;margin:0 auto;background:#fff;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden'>
         <div style='background:#0B1F3A;padding:24px;color:#fff'>
-          <div style='color:#D4AF37;text-transform:uppercase;letter-spacing:.18em;font-size:11px'>JDOM Universal Concept</div>
+          <div style='color:#D4AF37;text-transform:uppercase;letter-spacing:.18em;font-size:11px'>JDOM UNIVERSAL CONCEPT LTD</div>
           <h1 style='margin:8px 0 0;font-size:22px'>Application update</h1>
         </div>
         <div style='padding:24px;color:#1A202C'>
@@ -146,7 +146,7 @@ def build_status_email_html(user_name: str, app_doc: dict, custom_message: Optio
           {notes}
           <p style='margin-top:24px;font-size:13px;color:#475569'>Need to chat? <a href='https://wa.me/message/KWLEOBTILCU7H1' style='color:#0B1F3A;text-decoration:underline'>WhatsApp our desk</a> or sign in to your dashboard.</p>
         </div>
-        <div style='background:#0B1F3A;color:#94A3B8;padding:14px 24px;font-size:11px;text-align:center'>JDOM Universal Concept · Apapa · Tin Can · Onne</div>
+        <div style='background:#0B1F3A;color:#94A3B8;padding:14px 24px;font-size:11px;text-align:center'>JDOM UNIVERSAL CONCEPT LTD · Apapa · Tin Can · Onne</div>
       </div>
     </div>
     """

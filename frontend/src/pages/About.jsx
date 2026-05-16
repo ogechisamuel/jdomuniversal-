@@ -12,12 +12,12 @@ export default function About() {
     <div>
       <section className="bg-navy text-white">
         <div className="container-x py-20 lg:py-28">
-          <p className="label-eyebrow text-gold" data-testid="about-eyebrow">About JDOM Universal Concept Ltd</p>
+          <p className="label-eyebrow text-gold" data-testid="about-eyebrow">About JDOM UNIVERSAL CONCEPT LTD</p>
           <h1 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-extrabold mt-4 max-w-3xl leading-tight">
             Built by veterans of the <span className="text-gold">Nigerian customs corridor</span>.
           </h1>
           <p className="mt-6 max-w-2xl text-white/75 text-base leading-relaxed">
-            JDOM Universal Concept Ltd is a licensed customs clearing agency headquartered in Lagos, with permanent operations at the three most strategic ports in Nigeria — Apapa, Tin Can Island, and Onne. We specialise in the hard cargo nobody else wants to touch.
+            JDOM UNIVERSAL CONCEPT LTD is a licensed customs clearing agency headquartered in Lagos, with permanent operations at the three most strategic ports in Nigeria — Apapa, Tin Can Island, and Onne. We specialise in the hard cargo nobody else wants to touch.
           </p>
         </div>
       </section>

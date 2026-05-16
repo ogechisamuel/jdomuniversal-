@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import Logo from "@/components/Logo";
 
 export default function Login() {
   const { login } = useAuth();
@@ -43,24 +44,23 @@ export default function Login() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-white">
       <div className="hidden lg:flex flex-col justify-between bg-navy text-white p-12 relative overflow-hidden">
-        <Link to="/" className="flex items-center gap-2" data-testid="login-brand-link">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-gold text-navy font-extrabold">J</span>
-          <span className="font-heading font-bold text-lg">JDOM <span className="text-gold">Universal</span></span>
-        </Link>
+        <Logo testId="login-brand-link" wordmarkClassName="font-heading font-extrabold text-base tracking-wide text-white" />
         <div className="relative z-10">
           <p className="label-eyebrow text-gold">Importer Portal</p>
           <h2 className="font-heading text-4xl mt-3 max-w-md leading-tight">Track every container. File from anywhere.</h2>
           <p className="text-white/70 text-sm mt-4 max-w-sm">Submit clearing requests, upload PAAR &amp; Form M, and watch status updates in real time.</p>
         </div>
-        <div className="text-xs text-white/40">© {new Date().getFullYear()} JDOM Universal Concept Ltd</div>
+        <div className="text-xs text-white/40">© {new Date().getFullYear()} JDOM UNIVERSAL CONCEPT LTD</div>
         <div className="absolute -right-32 -bottom-32 h-96 w-96 rounded-full bg-gold/10 blur-3xl" />
       </div>
 
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
           <Link to="/" className="lg:hidden flex items-center gap-2 mb-8">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-navy text-gold font-extrabold">J</span>
-            <span className="font-heading font-bold text-navy">JDOM Universal</span>
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-white p-1 shadow-sm">
+              <img src="https://customer-assets.emergentagent.com/job_clearing-express/artifacts/jl2nerad_jdom.png" alt="JDOM" className="h-full w-full object-contain" />
+            </span>
+            <span className="font-heading font-bold text-navy text-sm">JDOM UNIVERSAL CONCEPT LTD</span>
           </Link>
           <h1 className="font-heading text-3xl text-navy">Welcome back</h1>
           <p className="text-navy/65 text-sm mt-1">Sign in to your importer dashboard.</p>

@@ -1,16 +1,14 @@
 import { Link } from "react-router-dom";
 import { Phone, Mail, MapPin, Anchor } from "lucide-react";
 import { COMPANY, whatsappLink } from "@/lib/company";
+import Logo from "@/components/Logo";
 
 export default function Footer() {
   return (
     <footer className="bg-navy text-white" data-testid="site-footer">
       <div className="container-x py-16 grid gap-10 md:grid-cols-4">
         <div className="md:col-span-2">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-gold text-navy font-heading font-extrabold text-lg">J</span>
-            <span className="font-heading font-bold text-xl">JDOM <span className="text-gold">Universal</span></span>
-          </div>
+          <Logo size="h-14 w-14" wordmarkClassName="font-heading font-extrabold text-lg tracking-wide text-white" to={null} testId="footer-logo" wrapperClassName="mb-4" />
           <p className="text-white/70 text-sm max-w-md leading-relaxed">
             Nigeria's specialist customs clearing agency for oil &amp; gas, industrial cargo, textiles and PPE. Zero demurrage, full documentation control across Apapa, Tin Can and Onne.
           </p>
