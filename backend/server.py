@@ -269,6 +269,8 @@ class ApplicationUpdate(BaseModel):
 class AdminNotifyRequest(BaseModel):
     subject: str = Field(min_length=3, max_length=140)
     message: str = Field(min_length=3)
+    channel: Literal["email", "whatsapp"] = "email"
+    template_key: Optional[str] = None
 
 
 class LeadUpdate(BaseModel):
@@ -755,20 +757,52 @@ async def admin_notify_importer(application_id: str, payload: AdminNotifyRequest
     app_doc = await db.applications.find_one({"application_id": application_id}, {"_id": 0})
     if not app_doc:
         raise HTTPException(status_code=404, detail="Application not found")
-    html = build_status_email_html(app_doc.get("user_name", ""), app_doc, custom_message=payload.message)
-    ok = send_email(app_doc["user_email"], payload.subject, html)
-    # Log the notification for audit trail
-    await db.application_notifications.insert_one({
+    user = await db.users.find_one({"user_id": app_doc["user_id"]}, {"_id": 0, "password_hash": 0})
+    user_phone = (user or {}).get("phone")
+
+    sent = False
+    if payload.channel == "email":
+        html = build_status_email_html(app_doc.get("user_name", ""), app_doc, custom_message=payload.message)
+        sent = send_email(app_doc["user_email"], payload.subject, html)
+        if not sent:
+            raise HTTPException(status_code=502, detail="Email could not be sent. Check SendGrid configuration.")
+    else:
+        # WhatsApp: frontend opens wa.me link; backend only logs the intent
+        sent = True
+
+    note = {
         "application_id": application_id,
+        "user_id": app_doc["user_id"],
         "user_email": app_doc["user_email"],
+        "user_phone": user_phone,
+        "channel": payload.channel,
         "subject": payload.subject,
         "message": payload.message,
-        "sent": bool(ok),
+        "template_key": payload.template_key,
+        "sent": bool(sent),
         "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    if not ok:
-        raise HTTPException(status_code=502, detail="Email could not be sent. Check SendGrid configuration.")
-    return {"ok": True, "sent": True}
+    }
+    await db.application_notifications.insert_one(note)
+    note.pop("_id", None)
+    return {"ok": True, "sent": sent, "channel": payload.channel, "user_phone": user_phone, "notification": note}
+
+
+@api.get("/admin/applications/{application_id}/notifications")
+async def admin_list_notifications(application_id: str, _: dict = Depends(require_admin)):
+    items = await db.application_notifications.find(
+        {"application_id": application_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    return items
+
+
+@api.get("/admin/applications/{application_id}/details")
+async def admin_application_details(application_id: str, _: dict = Depends(require_admin)):
+    app_doc = await db.applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    user = await db.users.find_one({"user_id": app_doc["user_id"]},
+                                   {"_id": 0, "password_hash": 0})
+    return {"application": app_doc, "user": user}
 
 
 @api.get("/admin/stats")

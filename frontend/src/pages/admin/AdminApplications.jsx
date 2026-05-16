@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Save, Download, Loader2, Send, Bell } from "lucide-react";
+import { Save, Download, Loader2, Send, Bell, MessageCircle, Mail, History, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import api, { formatApiError } from "@/lib/api";
+import { NOTIFICATION_TEMPLATES, applyTemplateVars } from "@/lib/notificationTemplates";
 
 const STATUS = ["pending", "processing", "cleared"];
 
@@ -56,10 +57,30 @@ function ApplicationRow({ a, onSaved }) {
     status: a.status, tracking_number: a.tracking_number || "", tracking_status: a.tracking_status || "", admin_notes: a.admin_notes || "",
   });
   const [notifyOnSave, setNotifyOnSave] = useState(true);
-  const [notice, setNotice] = useState({ subject: "", message: "" });
+  const [notice, setNotice] = useState({ subject: "", message: "", template_key: "" });
+  const [channel, setChannel] = useState("email");
+  const [history, setHistory] = useState([]);
+  const [userPhone, setUserPhone] = useState(null);
   const [saving, setSaving] = useState(false);
   const [notifying, setNotifying] = useState(false);
   const [open, setOpen] = useState(false);
+
+  // Load notification history + importer phone when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    api.get(`/admin/applications/${a.application_id}/notifications`).then((r) => setHistory(r.data || [])).catch(() => {});
+    api.get(`/admin/applications/${a.application_id}/details`).then((r) => setUserPhone(r.data?.user?.phone || null)).catch(() => {});
+  }, [open, a.application_id]);
+
+  const applyTemplate = (key) => {
+    const tpl = NOTIFICATION_TEMPLATES.find((t) => t.key === key);
+    if (!tpl) { setNotice({ subject: "", message: "", template_key: "" }); return; }
+    setNotice({
+      template_key: key,
+      subject: applyTemplateVars(tpl.subject, a),
+      message: applyTemplateVars(tpl.body, a),
+    });
+  };
 
   const save = async () => {
     setSaving(true);
@@ -79,11 +100,30 @@ function ApplicationRow({ a, onSaved }) {
 
   const sendNotice = async () => {
     if (!notice.subject || !notice.message) return toast.error("Subject and message are required.");
+
+    if (channel === "whatsapp") {
+      if (!userPhone) return toast.error("Importer has no phone number on file. Switch to email.");
+      // Open WhatsApp with prefilled text and log on backend
+      const phoneDigits = userPhone.replace(/[^\d]/g, "");
+      const text = `${notice.subject}\n\n${notice.message}`;
+      const url = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(text)}`;
+      window.open(url, "_blank");
+      try {
+        await api.post(`/admin/applications/${a.application_id}/notify`, { ...notice, channel: "whatsapp" });
+        toast.success(`WhatsApp draft opened for ${phoneDigits}`);
+        const { data } = await api.get(`/admin/applications/${a.application_id}/notifications`);
+        setHistory(data || []);
+      } catch (e) { toast.error(formatApiError(e)); }
+      return;
+    }
+
     setNotifying(true);
     try {
-      await api.post(`/admin/applications/${a.application_id}/notify`, notice);
+      await api.post(`/admin/applications/${a.application_id}/notify`, { ...notice, channel: "email" });
       toast.success(`Email sent to ${a.user_email}`);
-      setNotice({ subject: "", message: "" });
+      setNotice({ subject: "", message: "", template_key: "" });
+      const { data } = await api.get(`/admin/applications/${a.application_id}/notifications`);
+      setHistory(data || []);
     } catch (e) { toast.error(formatApiError(e)); } finally { setNotifying(false); }
   };
 
@@ -125,16 +165,21 @@ function ApplicationRow({ a, onSaved }) {
           <DialogTrigger asChild>
             <Button size="sm" className="bg-navy text-white hover:bg-navy-600" data-testid={`manage-app-${a.application_id}`}>Manage</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-heading text-navy">Manage application</DialogTitle>
-              <p className="text-xs text-navy/55 -mt-1">{a.user_name} · {a.user_email}</p>
+              <p className="text-xs text-navy/55 -mt-1">
+                {a.user_name} · {a.user_email}
+                {userPhone && <span> · {userPhone}</span>}
+              </p>
             </DialogHeader>
             <Tabs defaultValue="status" className="mt-2">
-              <TabsList className="grid grid-cols-2 w-full" data-testid="manage-tabs">
-                <TabsTrigger value="status" data-testid="tab-status">Status &amp; tracking</TabsTrigger>
+              <TabsList className="grid grid-cols-3 w-full" data-testid="manage-tabs">
+                <TabsTrigger value="status" data-testid="tab-status">Status</TabsTrigger>
                 <TabsTrigger value="notify" data-testid="tab-notify">Send notification</TabsTrigger>
+                <TabsTrigger value="history" data-testid="tab-history">History ({history.length})</TabsTrigger>
               </TabsList>
+
               <TabsContent value="status" className="space-y-4 mt-4">
                 <div>
                   <Label className="text-navy">Status</Label>
@@ -168,19 +213,90 @@ function ApplicationRow({ a, onSaved }) {
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Save className="h-4 w-4" /> Save changes</>}
                 </Button>
               </TabsContent>
+
               <TabsContent value="notify" className="space-y-4 mt-4">
-                <p className="text-xs text-navy/65">Send a one-off email to <strong>{a.user_email}</strong>. Useful for clarifications, document requests, or arrival pings.</p>
+                <div>
+                  <Label className="text-navy">Choose a template</Label>
+                  <Select value={notice.template_key} onValueChange={applyTemplate}>
+                    <SelectTrigger data-testid="notify-template" className="mt-1.5">
+                      <SelectValue placeholder="Pick a predefined message or type your own below" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NOTIFICATION_TEMPLATES.map((t) => (
+                        <SelectItem key={t.key} value={t.key} data-testid={`tpl-${t.key}`}>
+                          <span className="inline-flex items-center gap-2"><FileText className="h-3.5 w-3.5 text-gold-700" /> {t.label}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-navy/55 mt-1.5">Variables like {"{{name}}"}, {"{{cargo_type}}"}, {"{{port}}"} auto-fill from the application. You can still edit before sending.</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 p-1 bg-navy-50 rounded-md" role="tablist">
+                  <button
+                    type="button"
+                    onClick={() => setChannel("email")}
+                    className={`flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-colors ${channel === "email" ? "bg-white text-navy shadow-sm" : "text-navy/60 hover:text-navy"}`}
+                    data-testid="channel-email"
+                  ><Mail className="h-4 w-4" /> Email</button>
+                  <button
+                    type="button"
+                    onClick={() => setChannel("whatsapp")}
+                    className={`flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-colors ${channel === "whatsapp" ? "bg-white text-navy shadow-sm" : "text-navy/60 hover:text-navy"}`}
+                    data-testid="channel-whatsapp"
+                  ><MessageCircle className="h-4 w-4" /> WhatsApp</button>
+                </div>
+                {channel === "whatsapp" && !userPhone && (
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2" data-testid="no-phone-warning">
+                    No phone number on file for this importer. Ask them to update their profile, or send via email.
+                  </div>
+                )}
+
                 <div>
                   <Label className="text-navy">Subject</Label>
                   <Input data-testid="notify-subject" value={notice.subject} onChange={(e) => setNotice({ ...notice, subject: e.target.value })} placeholder="e.g. PAAR document needed" className="mt-1.5" />
                 </div>
                 <div>
                   <Label className="text-navy">Message</Label>
-                  <Textarea data-testid="notify-message" rows={6} value={notice.message} onChange={(e) => setNotice({ ...notice, message: e.target.value })} placeholder="Hello, please share your latest PAAR by EOD..." className="mt-1.5" />
+                  <Textarea data-testid="notify-message" rows={7} value={notice.message} onChange={(e) => setNotice({ ...notice, message: e.target.value })} placeholder="Hello, please share your latest PAAR by EOD..." className="mt-1.5" />
                 </div>
-                <Button onClick={sendNotice} disabled={notifying || !notice.subject || !notice.message} className="bg-navy hover:bg-navy-600 text-white w-full" data-testid="notify-send-btn">
-                  {notifying ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4" /> Send notification</>}
+                <Button
+                  onClick={sendNotice}
+                  disabled={notifying || !notice.subject || !notice.message || (channel === "whatsapp" && !userPhone)}
+                  className={`w-full ${channel === "whatsapp" ? "bg-[#25D366] hover:bg-[#1ebe57] text-white" : "bg-navy hover:bg-navy-600 text-white"}`}
+                  data-testid="notify-send-btn"
+                >
+                  {notifying ? <Loader2 className="h-4 w-4 animate-spin" /> : channel === "whatsapp"
+                    ? <><MessageCircle className="h-4 w-4" /> Open in WhatsApp</>
+                    : <><Send className="h-4 w-4" /> Send email</>}
                 </Button>
+              </TabsContent>
+
+              <TabsContent value="history" className="space-y-3 mt-4">
+                {history.length === 0 && (
+                  <div className="text-sm text-navy/55 text-center py-8 flex flex-col items-center gap-2" data-testid="history-empty">
+                    <History className="h-8 w-8 text-navy/20" />
+                    No notifications sent to this importer yet.
+                  </div>
+                )}
+                {history.map((h, i) => (
+                  <div key={i} className="border border-border rounded-md p-3" data-testid={`history-item-${i}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {h.channel === "whatsapp" ? <MessageCircle className="h-4 w-4 text-[#25D366]" /> : <Mail className="h-4 w-4 text-navy" />}
+                        <span className="font-heading text-sm text-navy">{h.subject}</span>
+                      </div>
+                      <span className="text-xs text-navy/50">{new Date(h.created_at).toLocaleString()}</span>
+                    </div>
+                    <p className="text-xs text-navy/70 mt-2 whitespace-pre-line line-clamp-3">{h.message}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full ${h.sent ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                        {h.sent ? "Delivered" : "Failed"}
+                      </span>
+                      <span className="text-[10px] text-navy/40">via {h.channel}{h.template_key ? ` · template: ${h.template_key}` : ""}</span>
+                    </div>
+                  </div>
+                ))}
               </TabsContent>
             </Tabs>
           </DialogContent>
