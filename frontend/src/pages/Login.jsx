@@ -71,7 +71,10 @@ export default function Login() {
               <Input data-testid="login-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required className="mt-1.5" />
             </div>
             <div>
-              <Label className="text-navy">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-navy">Password</Label>
+                <Link to="/forgot-password" className="text-xs text-gold-700 hover:underline" data-testid="login-forgot-link">Forgot password?</Link>
+              </div>
               <Input data-testid="login-password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required className="mt-1.5" />
             </div>
             <Button type="submit" disabled={loading} data-testid="login-submit-btn" className="w-full bg-navy hover:bg-navy-600 text-white h-11">

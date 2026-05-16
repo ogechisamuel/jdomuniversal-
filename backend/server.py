@@ -125,6 +125,16 @@ class GoogleSessionRequest(BaseModel):
     session_id: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    origin: str  # frontend origin, used to build the reset link
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str = Field(min_length=6)
+
+
 class LeadCreate(BaseModel):
     name: str
     email: EmailStr
@@ -345,6 +355,81 @@ async def logout(response: Response, request: Request):
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return serialize_user(user)
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest):
+    # Always return ok to avoid email enumeration
+    email = payload.email.lower()
+    user = await db.users.find_one({"email": email})
+    if user and user.get("auth_provider", "password") == "password":
+        import secrets
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=30)
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "user_id": user["user_id"],
+            "email": email,
+            "expires_at": expires_at,  # native datetime for TTL index
+            "used": False,
+            "created_at": now.isoformat(),
+        })
+        origin = (payload.origin or "").rstrip("/")
+        reset_link = f"{origin}/reset-password?token={token}"
+        subject = "Reset your JDOM Universal password"
+        html = f"""
+        <div style='font-family:Arial,sans-serif;background:#F8F9FA;padding:24px'>
+          <div style='max-width:520px;margin:0 auto;background:#fff;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden'>
+            <div style='background:#0B1F3A;padding:24px;color:#fff'>
+              <div style='color:#D4AF37;text-transform:uppercase;letter-spacing:.18em;font-size:11px'>JDOM Universal Concept</div>
+              <h1 style='margin:8px 0 0;font-size:22px'>Password reset request</h1>
+            </div>
+            <div style='padding:24px;color:#1A202C'>
+              <p>Hello {user.get('name','')},</p>
+              <p>We received a request to reset the password for your JDOM Universal account.</p>
+              <p style='margin:24px 0'>
+                <a href='{reset_link}' style='background:#D4AF37;color:#0B1F3A;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:700;display:inline-block'>Reset my password</a>
+              </p>
+              <p style='font-size:13px;color:#475569'>This link expires in <strong>30 minutes</strong>. If you didn't request this, you can safely ignore this email.</p>
+              <p style='font-size:12px;color:#94A3B8;word-break:break-all;margin-top:24px'>If the button doesn't work, paste this URL in your browser:<br/>{reset_link}</p>
+            </div>
+          </div>
+        </div>
+        """
+        # send email directly to the user (not the admin notification address)
+        try:
+            api_key = os.environ.get("SENDGRID_API_KEY", "")
+            sender = os.environ.get("SENDER_EMAIL", "noreply@jdomuniversal.online")
+            if api_key:
+                msg = Mail(from_email=sender, to_emails=email, subject=subject, html_content=html)
+                sg = SendGridAPIClient(api_key)
+                r = sg.send(msg)
+                logger.info(f"Password reset email status={r.status_code} email={email}")
+            else:
+                logger.warning(f"[reset link skipped: no SENDGRID_API_KEY] {reset_link}")
+        except Exception as e:
+            logger.error(f"Reset email failed for {email}: {e}")
+    return {"ok": True, "message": "If an account exists for this email, a reset link has been sent."}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordRequest):
+    row = await db.password_reset_tokens.find_one({"token": payload.token}, {"_id": 0})
+    if not row or row.get("used"):
+        raise HTTPException(status_code=400, detail="Invalid or already used reset link.")
+    exp = row["expires_at"]
+    if isinstance(exp, str):
+        exp = datetime.fromisoformat(exp)
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
+    new_hash = hash_password(payload.password)
+    await db.users.update_one({"user_id": row["user_id"]}, {"$set": {"password_hash": new_hash}})
+    await db.password_reset_tokens.update_one({"token": payload.token},
+                                              {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True, "message": "Password updated. You can now sign in with your new password."}
 
 
 @api.post("/auth/google/session")
@@ -670,6 +755,8 @@ async def on_startup():
     await db.documents.create_index("user_id")
     await db.leads.create_index("lead_id", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
+    await db.password_reset_tokens.create_index("token", unique=True)
+    await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
 
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
