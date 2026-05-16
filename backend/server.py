@@ -320,6 +320,13 @@ class TemplateUpdate(BaseModel):
     channel: Optional[Literal["email", "whatsapp", "both"]] = None
 
 
+class FilterPresetCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    status_filter: Optional[Literal["pending", "processing", "cleared"]] = None
+    port: Optional[str] = None
+    older_than_days: Optional[int] = Field(default=None, ge=0, le=365)
+
+
 # ---------------- Auth Dependency ----------------
 async def get_current_user(request: Request) -> dict:
     # Try JWT (access_token cookie or bearer)
@@ -1067,6 +1074,31 @@ async def admin_update_template(template_id: str, payload: TemplateUpdate, _: di
 @api.delete("/admin/templates/{template_id}")
 async def admin_delete_template(template_id: str, _: dict = Depends(require_admin)):
     res = await db.templates.delete_one({"template_id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
+# ---------------- Filter Presets ----------------
+@api.get("/admin/filter-presets")
+async def admin_list_filter_presets(_: dict = Depends(require_admin)):
+    items = await db.filter_presets.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return items
+
+
+@api.post("/admin/filter-presets")
+async def admin_create_filter_preset(payload: FilterPresetCreate, _: dict = Depends(require_admin)):
+    preset_id = f"prs_{uuid.uuid4().hex[:12]}"
+    doc = {**payload.model_dump(), "preset_id": preset_id,
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.filter_presets.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/admin/filter-presets/{preset_id}")
+async def admin_delete_filter_preset(preset_id: str, _: dict = Depends(require_admin)):
+    res = await db.filter_presets.delete_one({"preset_id": preset_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}

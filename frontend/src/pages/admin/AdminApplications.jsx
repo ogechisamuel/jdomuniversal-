@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Save, Download, Loader2, Send, Bell, MessageCircle, Mail, History, FileText, Filter, Users, ExternalLink } from "lucide-react";
+import { Save, Download, Loader2, Send, Bell, MessageCircle, Mail, History, FileText, Filter, Users, ExternalLink, Bookmark, BookmarkPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,9 @@ export default function AdminApplications() {
   const [filters, setFilters] = useState({ status: "all", port: "all", older_than_days: "" });
   const [selected, setSelected] = useState({});
   const [templates, setTemplates] = useState([]);
+  const [presets, setPresets] = useState([]);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetName, setPresetName] = useState("");
 
   const load = () => {
     const params = new URLSearchParams();
@@ -31,9 +34,40 @@ export default function AdminApplications() {
     return api.get(`/admin/applications${qs ? `?${qs}` : ""}`).then((r) => setApps(r.data || []));
   };
 
+  const loadPresets = () => api.get("/admin/filter-presets").then((r) => setPresets(r.data || []));
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [filters]);
   useEffect(() => { api.get("/admin/templates").then((r) => setTemplates(r.data || [])); }, []);
+  useEffect(() => { loadPresets(); }, []);
+
+  const applyPreset = (p) => {
+    setFilters({
+      status: p.status_filter || "all",
+      port: p.port || "all",
+      older_than_days: p.older_than_days != null ? String(p.older_than_days) : "",
+    });
+  };
+
+  const savePreset = async () => {
+    if (!presetName.trim()) return toast.error("Give your preset a name.");
+    setSavingPreset(true);
+    try {
+      const payload = { name: presetName.trim() };
+      if (filters.status !== "all") payload.status_filter = filters.status;
+      if (filters.port !== "all") payload.port = filters.port;
+      if (filters.older_than_days) payload.older_than_days = parseInt(filters.older_than_days, 10);
+      await api.post("/admin/filter-presets", payload);
+      toast.success("Preset saved");
+      setPresetName("");
+      loadPresets();
+    } catch (e) { toast.error(formatApiError(e)); } finally { setSavingPreset(false); }
+  };
+
+  const deletePreset = async (id) => {
+    try { await api.delete(`/admin/filter-presets/${id}`); toast.success("Preset deleted"); loadPresets(); }
+    catch (e) { toast.error(formatApiError(e)); }
+  };
 
   const selectedIds = useMemo(() => Object.entries(selected).filter(([, v]) => v).map(([k]) => k), [selected]);
   const allChecked = apps.length > 0 && apps.every((a) => selected[a.application_id]);
@@ -93,6 +127,66 @@ export default function AdminApplications() {
         <div>
           <Button variant="outline" disabled={!hasFilters} onClick={resetFilters} className="w-full" data-testid="filter-reset">Reset filters</Button>
         </div>
+      </div>
+
+      {/* Saved presets */}
+      <div className="card-flat p-4" data-testid="presets-bar">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-gold-700">
+            <Bookmark className="h-3.5 w-3.5" /> Saved presets
+          </div>
+          {hasFilters && (
+            <div className="flex items-center gap-2">
+              <Input
+                data-testid="preset-name-input"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="Name this filter…"
+                className="h-9 w-48 text-sm"
+                onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }}
+              />
+              <Button
+                size="sm"
+                onClick={savePreset}
+                disabled={savingPreset || !presetName.trim()}
+                className="bg-gold text-navy hover:bg-gold-400"
+                data-testid="preset-save-btn"
+              >
+                {savingPreset ? <Loader2 className="h-3 w-3 animate-spin" /> : <><BookmarkPlus className="h-3 w-3" /> Save current</>}
+              </Button>
+            </div>
+          )}
+        </div>
+        {presets.length === 0 ? (
+          <p className="text-xs text-navy/55" data-testid="presets-empty">No saved presets yet. Set filters above, give it a name, and save for one-click recall.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {presets.map((p) => {
+              const summary = [
+                p.status_filter,
+                p.port,
+                p.older_than_days != null ? `≥ ${p.older_than_days}d` : null,
+              ].filter(Boolean).join(" · ") || "all";
+              return (
+                <div key={p.preset_id} className="group inline-flex items-center gap-2 rounded-full bg-navy-50 hover:bg-navy hover:text-white border border-border px-3 py-1.5 transition-colors cursor-pointer" data-testid={`preset-${p.preset_id}`}>
+                  <button type="button" onClick={() => applyPreset(p)} className="text-sm font-medium" data-testid={`preset-apply-${p.preset_id}`}>
+                    <span className="text-navy group-hover:text-white">{p.name}</span>
+                    <span className="text-[10px] uppercase tracking-widest text-navy/45 group-hover:text-white/60 ml-2">{summary}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); deletePreset(p.preset_id); }}
+                    className="text-navy/40 hover:text-red-500 group-hover:text-white/60 group-hover:hover:text-red-300"
+                    aria-label="Delete preset"
+                    data-testid={`preset-delete-${p.preset_id}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {selectedIds.length > 0 && (
