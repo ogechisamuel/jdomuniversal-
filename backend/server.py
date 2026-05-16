@@ -832,6 +832,65 @@ async def admin_stats(_: dict = Depends(require_admin)):
     }
 
 
+@api.get("/admin/notification-analytics")
+async def admin_notification_analytics(_: dict = Depends(require_admin)):
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=30)).isoformat()
+
+    total = await db.application_notifications.count_documents({})
+    last_30d = await db.application_notifications.count_documents({"created_at": {"$gte": cutoff}})
+    by_email = await db.application_notifications.count_documents({"channel": "email"})
+    by_whatsapp = await db.application_notifications.count_documents({"channel": "whatsapp"})
+    delivered = await db.application_notifications.count_documents({"sent": True})
+
+    # Top templates by usage (skip ad-hoc messages with no template_key)
+    pipeline = [
+        {"$match": {"template_key": {"$nin": [None, ""]}}},
+        {"$group": {"_id": "$template_key", "count": {"$sum": 1},
+                    "last_used": {"$max": "$created_at"}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10},
+    ]
+    top_raw = await db.application_notifications.aggregate(pipeline).to_list(20)
+    # Resolve template labels (template_key now stores template_id)
+    template_ids = [r["_id"] for r in top_raw]
+    tpls = {}
+    if template_ids:
+        async for tpl in db.templates.find({"template_id": {"$in": template_ids}}, {"_id": 0}):
+            tpls[tpl["template_id"]] = tpl
+    top_templates = []
+    for r in top_raw:
+        tpl = tpls.get(r["_id"])
+        top_templates.append({
+            "template_id": r["_id"],
+            "label": (tpl or {}).get("label", "Deleted template"),
+            "channel": (tpl or {}).get("channel", "both"),
+            "count": r["count"],
+            "last_used": r["last_used"],
+            "exists": bool(tpl),
+        })
+
+    # Daily volume — last 14 days
+    daily = []
+    for i in range(13, -1, -1):
+        day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        c = await db.application_notifications.count_documents({
+            "created_at": {"$gte": day_start.isoformat(), "$lt": day_end.isoformat()}
+        })
+        daily.append({"date": day_start.strftime("%b %d"), "count": c})
+
+    return {
+        "total": total,
+        "last_30d": last_30d,
+        "delivered": delivered,
+        "by_email": by_email,
+        "by_whatsapp": by_whatsapp,
+        "top_templates": top_templates,
+        "daily": daily,
+    }
+
+
 @api.post("/admin/testimonials")
 async def admin_create_testimonial(payload: TestimonialCreate, _: dict = Depends(require_admin)):
     testimonial_id = f"tst_{uuid.uuid4().hex[:12]}"
