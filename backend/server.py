@@ -737,9 +737,115 @@ async def admin_list_users(_: dict = Depends(require_admin)):
 
 
 @api.get("/admin/applications")
-async def admin_list_applications(_: dict = Depends(require_admin)):
-    apps = await db.applications.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+async def admin_list_applications(
+    status_filter: Optional[Literal["pending", "processing", "cleared"]] = None,
+    port: Optional[str] = None,
+    older_than_days: Optional[int] = None,
+    _: dict = Depends(require_admin),
+):
+    query = {}
+    if status_filter:
+        query["status"] = status_filter
+    if port:
+        query["port"] = port
+    if older_than_days is not None and older_than_days >= 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        query["created_at"] = {"$lte": cutoff}
+    apps = await db.applications.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return apps
+
+
+class BulkNotifyRequest(BaseModel):
+    application_ids: List[str] = Field(min_length=1, max_length=200)
+    channel: Literal["email", "whatsapp"] = "email"
+    subject: str = Field(min_length=2, max_length=160)
+    message: str = Field(min_length=2)
+    template_key: Optional[str] = None
+
+
+@api.post("/admin/applications/bulk-notify")
+async def admin_bulk_notify(payload: BulkNotifyRequest, _: dict = Depends(require_admin)):
+    results = []
+    apps = await db.applications.find(
+        {"application_id": {"$in": payload.application_ids}}, {"_id": 0}
+    ).to_list(len(payload.application_ids))
+    by_id = {a["application_id"]: a for a in apps}
+
+    # Resolve user phones in one go
+    user_ids = list({a["user_id"] for a in apps})
+    phones = {}
+    if user_ids:
+        async for u in db.users.find({"user_id": {"$in": user_ids}}, {"_id": 0, "user_id": 1, "phone": 1}):
+            phones[u["user_id"]] = u.get("phone")
+
+    # Resolve template once (for variable substitution we re-render per-app)
+    tpl = None
+    if payload.template_key:
+        tpl = await db.templates.find_one({"template_id": payload.template_key}, {"_id": 0})
+
+    def render(text, app):
+        if not text:
+            return ""
+        vars_ = {
+            "name": app.get("user_name") or "there",
+            "cargo_type": app.get("cargo_type") or "your cargo",
+            "port": app.get("port") or "the port",
+            "containers": app.get("containers") or "your containers",
+            "tracking_number": app.get("tracking_number") or "—",
+            "eta": app.get("eta") or "TBD",
+        }
+        import re
+        return re.sub(r"\{\{(\w+)\}\}", lambda m: vars_.get(m.group(1), m.group(0)), text)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    audit_rows = []
+    for app_id in payload.application_ids:
+        app_doc = by_id.get(app_id)
+        if not app_doc:
+            results.append({"application_id": app_id, "sent": False, "error": "not_found"})
+            continue
+        # If template provided, render fresh per-app from its source; else use raw subject/message (still apply vars)
+        subj = render(tpl["subject"], app_doc) if tpl else render(payload.subject, app_doc)
+        body = render(tpl["body"], app_doc) if tpl else render(payload.message, app_doc)
+
+        sent = False
+        wa_url = None
+        if payload.channel == "email":
+            html = build_status_email_html(app_doc.get("user_name", ""), app_doc, custom_message=body)
+            sent = send_email(app_doc["user_email"], subj, html)
+        else:
+            user_phone = phones.get(app_doc["user_id"])
+            if user_phone:
+                digits = "".join(c for c in user_phone if c.isdigit())
+                from urllib.parse import quote
+                wa_text = f"{subj}\n\n{body}"
+                wa_url = f"https://wa.me/{digits}?text={quote(wa_text)}"
+                sent = True
+            else:
+                results.append({"application_id": app_id, "sent": False, "error": "no_phone"})
+                continue
+
+        audit_rows.append({
+            "application_id": app_id,
+            "user_id": app_doc["user_id"],
+            "user_email": app_doc["user_email"],
+            "user_phone": phones.get(app_doc["user_id"]),
+            "channel": payload.channel,
+            "subject": subj,
+            "message": body,
+            "template_key": payload.template_key,
+            "sent": bool(sent),
+            "bulk": True,
+            "created_at": now_iso,
+        })
+        results.append({"application_id": app_id, "sent": sent, "wa_url": wa_url,
+                         "user_email": app_doc["user_email"], "user_name": app_doc.get("user_name")})
+
+    if audit_rows:
+        await db.application_notifications.insert_many(audit_rows)
+
+    total_sent = sum(1 for r in results if r.get("sent"))
+    return {"ok": True, "total": len(payload.application_ids), "sent": total_sent, "results": results}
 
 
 @api.patch("/admin/applications/{application_id}")
