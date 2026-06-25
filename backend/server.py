@@ -333,6 +333,13 @@ class DigestSettings(BaseModel):
     hour: int = Field(default=8, ge=0, le=23)
 
 
+class WeeklyDigestSettings(BaseModel):
+    enabled: bool = False
+    hour: int = Field(default=8, ge=0, le=23)
+    weekday: int = Field(default=0, ge=0, le=6)
+    recipients: List[EmailStr] = Field(default_factory=list, max_length=10)
+
+
 # ---------------- Auth Dependency ----------------
 async def get_current_user(request: Request) -> dict:
     # Try JWT (access_token cookie or bearer)
@@ -1263,6 +1270,182 @@ async def admin_send_digest_now(_: dict = Depends(require_admin)):
     return {"ok": bool(ok), "matched": len(apps), "preset": preset.get("name") if preset else None}
 
 
+# ---------------- Weekly performance summary ----------------
+WEEKLY_SETTINGS_ID = "weekly_summary"
+
+
+async def _get_weekly_settings() -> dict:
+    doc = await db.app_settings.find_one({"_id": WEEKLY_SETTINGS_ID})
+    if not doc:
+        doc = {"_id": WEEKLY_SETTINGS_ID, "enabled": False, "hour": 8, "weekday": 0,
+                "recipients": [], "last_run_date": None}
+        await db.app_settings.insert_one(doc)
+    return doc
+
+
+async def _compute_weekly_stats() -> dict:
+    now = datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=7)).isoformat()
+    prev_week_start = (now - timedelta(days=14)).isoformat()
+    week_end = now.isoformat()
+
+    leads_this = await db.leads.count_documents({"created_at": {"$gte": week_start, "$lte": week_end}})
+    leads_prev = await db.leads.count_documents({"created_at": {"$gte": prev_week_start, "$lt": week_start}})
+    leads_contacted = await db.leads.count_documents({"status": "contacted", "created_at": {"$gte": week_start}})
+    apps_new = await db.applications.count_documents({"created_at": {"$gte": week_start, "$lte": week_end}})
+    apps_cleared = await db.applications.count_documents({"status": "cleared", "updated_at": {"$gte": week_start}})
+
+    # Average clearance time (days) for apps cleared this week
+    avg_days = None
+    cleared_docs = await db.applications.find(
+        {"status": "cleared", "updated_at": {"$gte": week_start}},
+        {"_id": 0, "created_at": 1, "updated_at": 1}
+    ).to_list(500)
+    if cleared_docs:
+        durations = []
+        for d in cleared_docs:
+            try:
+                c = datetime.fromisoformat(d["created_at"])
+                u = datetime.fromisoformat(d["updated_at"])
+                durations.append((u - c).total_seconds() / 86400)
+            except Exception:
+                pass
+        if durations:
+            avg_days = round(sum(durations) / len(durations), 1)
+
+    # Top ports this week
+    port_pipeline = [
+        {"$match": {"created_at": {"$gte": week_start}}},
+        {"$group": {"_id": "$port", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5},
+    ]
+    top_ports = await db.applications.aggregate(port_pipeline).to_list(10)
+    notifications_sent = await db.application_notifications.count_documents({"created_at": {"$gte": week_start}, "sent": True})
+
+    return {
+        "period": {"start": week_start, "end": week_end},
+        "leads_this": leads_this,
+        "leads_prev": leads_prev,
+        "leads_contacted": leads_contacted,
+        "apps_new": apps_new,
+        "apps_cleared": apps_cleared,
+        "avg_clearance_days": avg_days,
+        "top_ports": top_ports,
+        "notifications_sent": notifications_sent,
+    }
+
+
+def _build_weekly_html(stats: dict) -> tuple[str, str]:
+    today_str = datetime.now(timezone.utc).strftime("%A, %b %d %Y")
+    delta = stats["leads_this"] - stats["leads_prev"]
+    delta_pct = (delta / stats["leads_prev"] * 100) if stats["leads_prev"] else 0
+    delta_arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
+    delta_color = "#047857" if delta > 0 else ("#B91C1C" if delta < 0 else "#64748B")
+    delta_text = f"{delta_arrow} {abs(delta)} vs last week ({delta_pct:+.0f}%)" if stats["leads_prev"] else "First tracked week"
+
+    ports_rows = ""
+    for p in stats["top_ports"]:
+        ports_rows += f"<tr><td style='padding:8px 12px;font-size:13px;color:#1A202C'>{p['_id'] or '—'}</td><td style='padding:8px 12px;font-size:13px;color:#0B1F3A;text-align:right;font-weight:600'>{p['count']}</td></tr>"
+    if not ports_rows:
+        ports_rows = "<tr><td colspan='2' style='padding:14px;text-align:center;color:#94A3B8;font-size:12px'>No applications this week.</td></tr>"
+
+    avg_str = f"{stats['avg_clearance_days']} days" if stats["avg_clearance_days"] is not None else "—"
+
+    subject = f"JDOM Weekly · {stats['apps_cleared']} cleared · {stats['leads_this']} new leads · {today_str}"
+    html = f"""
+    <div style='font-family:Arial,sans-serif;background:#F8F9FA;padding:24px'>
+      <div style='max-width:680px;margin:0 auto;background:#fff;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden'>
+        <div style='background:#0B1F3A;padding:24px;color:#fff'>
+          <div style='color:#D4AF37;text-transform:uppercase;letter-spacing:.18em;font-size:11px'>JDOM UNIVERSAL CONCEPT LTD · Weekly Summary</div>
+          <h1 style='margin:8px 0 0;font-size:22px'>This week in numbers</h1>
+          <p style='margin:6px 0 0;color:#94A3B8;font-size:13px'>{today_str}</p>
+        </div>
+        <div style='padding:24px;color:#1A202C'>
+          <table style='width:100%;border-collapse:separate;border-spacing:8px 0'>
+            <tr>
+              <td style='width:33%;background:#F1F4F9;padding:14px;border-radius:8px'>
+                <div style='font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.08em'>New leads</div>
+                <div style='font-size:28px;font-weight:800;color:#0B1F3A;margin-top:4px'>{stats['leads_this']}</div>
+                <div style='font-size:11px;color:{delta_color};margin-top:4px'>{delta_text}</div>
+              </td>
+              <td style='width:33%;background:#FBF5DD;padding:14px;border-radius:8px'>
+                <div style='font-size:11px;color:#8C701D;text-transform:uppercase;letter-spacing:.08em'>Applications cleared</div>
+                <div style='font-size:28px;font-weight:800;color:#0B1F3A;margin-top:4px'>{stats['apps_cleared']}</div>
+                <div style='font-size:11px;color:#8C701D;margin-top:4px'>of {stats['apps_new']} new this week</div>
+              </td>
+              <td style='width:33%;background:#ECFDF5;padding:14px;border-radius:8px'>
+                <div style='font-size:11px;color:#047857;text-transform:uppercase;letter-spacing:.08em'>Avg. clearance</div>
+                <div style='font-size:28px;font-weight:800;color:#0B1F3A;margin-top:4px'>{avg_str}</div>
+                <div style='font-size:11px;color:#047857;margin-top:4px'>port-to-pickup</div>
+              </td>
+            </tr>
+          </table>
+
+          <h3 style='margin:24px 0 8px;font-size:14px;color:#0B1F3A;text-transform:uppercase;letter-spacing:.12em'>Top ports this week</h3>
+          <table style='width:100%;border-collapse:collapse;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden'>
+            <thead><tr style='background:#F1F4F9'><th style='padding:8px 12px;text-align:left;font-size:11px;color:#475569'>Port</th><th style='padding:8px 12px;text-align:right;font-size:11px;color:#475569'>Applications</th></tr></thead>
+            <tbody>{ports_rows}</tbody>
+          </table>
+
+          <div style='margin-top:18px;padding:12px 14px;background:#F8F9FA;border-radius:6px;font-size:12px;color:#475569'>
+            <strong>Client touchpoints:</strong> {stats['notifications_sent']} email/WhatsApp notifications delivered this week · {stats['leads_contacted']} leads marked contacted.
+          </div>
+
+          <p style='margin-top:24px;font-size:12px;color:#94A3B8'>You're receiving this because the weekly performance summary is enabled. Manage it in the Admin Console.</p>
+        </div>
+      </div>
+    </div>
+    """
+    return subject, html
+
+
+@api.get("/admin/weekly-summary/settings")
+async def admin_get_weekly_settings(_: dict = Depends(require_admin)):
+    doc = await _get_weekly_settings()
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/weekly-summary/settings")
+async def admin_set_weekly_settings(payload: WeeklyDigestSettings, _: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"_id": WEEKLY_SETTINGS_ID},
+        {"$set": payload.model_dump()},
+        upsert=True,
+    )
+    doc = await db.app_settings.find_one({"_id": WEEKLY_SETTINGS_ID})
+    doc.pop("_id", None)
+    return doc
+
+
+@api.post("/admin/weekly-summary/send")
+async def admin_send_weekly_now(_: dict = Depends(require_admin)):
+    settings = await _get_weekly_settings()
+    stats = await _compute_weekly_stats()
+    subject, html = _build_weekly_html(stats)
+    recipients = settings.get("recipients") or []
+    if not recipients:
+        # fall back to admin notification email
+        admin_to = os.environ.get("ADMIN_NOTIFICATION_EMAIL") or os.environ.get("SENDER_EMAIL")
+        if admin_to:
+            recipients = [admin_to]
+    sent_count = 0
+    for r in recipients:
+        if send_email(r, subject, html):
+            sent_count += 1
+    await db.app_settings.update_one(
+        {"_id": WEEKLY_SETTINGS_ID},
+        {"$set": {"last_run_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                  "last_run_at": datetime.now(timezone.utc).isoformat(),
+                  "last_run_manual": True,
+                  "last_run_recipients": len(recipients),
+                  "last_run_sent": sent_count}},
+        upsert=True,
+    )
+    return {"ok": sent_count > 0, "sent": sent_count, "recipients": len(recipients), "stats": stats}
+
+
 @api.get("/")
 async def root():
     return {"service": "jdom-universal", "ok": True}
@@ -1284,26 +1467,49 @@ _digest_task: Optional[asyncio.Task] = None
 
 
 async def _digest_scheduler_loop():
-    """Wakes up every 60s and fires the digest if enabled AND current UTC hour matches AND not yet run today."""
+    """Wakes up every 60s. Fires daily digest + weekly summary when their schedules match and they have not yet run today."""
     while True:
         try:
-            settings = await db.app_settings.find_one({"_id": DIGEST_SETTINGS_ID})
-            if settings and settings.get("enabled"):
-                now = datetime.now(timezone.utc)
-                today = now.strftime("%Y-%m-%d")
-                if now.hour == int(settings.get("hour", 8)) and settings.get("last_run_date") != today:
-                    preset, apps = await _query_default_preset_apps()
-                    subject, html = _build_digest_html(preset, apps)
-                    ok = send_admin_email(subject, html)
-                    await db.app_settings.update_one(
-                        {"_id": DIGEST_SETTINGS_ID},
-                        {"$set": {"last_run_date": today,
-                                  "last_run_at": now.isoformat(),
-                                  "last_run_count": len(apps),
-                                  "last_run_manual": False,
-                                  "last_run_ok": bool(ok)}},
-                    )
-                    logger.info(f"Daily digest fired: matched={len(apps)} ok={ok}")
+            now = datetime.now(timezone.utc)
+            today = now.strftime("%Y-%m-%d")
+
+            # Daily digest
+            d = await db.app_settings.find_one({"_id": DIGEST_SETTINGS_ID})
+            if (d and d.get("enabled")
+                    and now.hour == int(d.get("hour", 8))
+                    and d.get("last_run_date") != today):
+                preset, apps = await _query_default_preset_apps()
+                subject, html = _build_digest_html(preset, apps)
+                ok = send_admin_email(subject, html)
+                await db.app_settings.update_one(
+                    {"_id": DIGEST_SETTINGS_ID},
+                    {"$set": {"last_run_date": today, "last_run_at": now.isoformat(),
+                              "last_run_count": len(apps), "last_run_manual": False,
+                              "last_run_ok": bool(ok)}},
+                )
+                logger.info(f"Daily digest fired: matched={len(apps)} ok={ok}")
+
+            # Weekly summary
+            w = await db.app_settings.find_one({"_id": WEEKLY_SETTINGS_ID})
+            if (w and w.get("enabled")
+                    and now.weekday() == int(w.get("weekday", 0))
+                    and now.hour == int(w.get("hour", 8))
+                    and w.get("last_run_date") != today):
+                stats = await _compute_weekly_stats()
+                subject, html = _build_weekly_html(stats)
+                recipients = w.get("recipients") or []
+                if not recipients:
+                    admin_to = os.environ.get("ADMIN_NOTIFICATION_EMAIL") or os.environ.get("SENDER_EMAIL")
+                    if admin_to:
+                        recipients = [admin_to]
+                sent_count = sum(1 for r in recipients if send_email(r, subject, html))
+                await db.app_settings.update_one(
+                    {"_id": WEEKLY_SETTINGS_ID},
+                    {"$set": {"last_run_date": today, "last_run_at": now.isoformat(),
+                              "last_run_manual": False, "last_run_sent": sent_count,
+                              "last_run_recipients": len(recipients)}},
+                )
+                logger.info(f"Weekly summary fired: sent={sent_count}/{len(recipients)}")
         except asyncio.CancelledError:
             raise
         except Exception as e:

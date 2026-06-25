@@ -1,5 +1,5 @@
 import { Link, NavLink, useNavigate, Outlet } from "react-router-dom";
-import { LayoutDashboard, FilePlus2, Files, FolderOpen, Truck, LogOut, Users, MessagesSquare, Images, ShieldCheck, ClipboardList, ArrowLeftRight } from "lucide-react";
+import { LayoutDashboard, FilePlus2, Files, FolderOpen, Truck, LogOut, Users, MessagesSquare, Images, ShieldCheck, ClipboardList, ArrowLeftRight, MessageSquare } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -18,7 +18,7 @@ const adminLinks = [
   { to: "/admin/leads", label: "Leads", icon: MessagesSquare },
   { to: "/admin/applications", label: "Applications", icon: ClipboardList },
   { to: "/admin/importers", label: "Importers", icon: Users },
-  { to: "/admin/templates", label: "Templates", icon: MessageSquareText },
+  { to: "/admin/templates", label: "Templates", icon: MessageSquare },
   { to: "/admin/testimonials", label: "Testimonials", icon: ShieldCheck },
   { to: "/admin/gallery", label: "Gallery", icon: Images },
 ];
