@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import uuid
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
@@ -80,13 +81,13 @@ def clear_auth_cookies(response: Response):
         response.delete_cookie(k, path="/")
 
 
-def send_admin_email(subject: str, html: str):
+def send_admin_email(subject: str, html: str) -> bool:
     """Send email to admin notification address via SendGrid. Silently log failures."""
     to = os.environ.get("ADMIN_NOTIFICATION_EMAIL") or os.environ.get("SENDER_EMAIL", "")
     if not to:
         logger.warning(f"[email skipped: no admin recipient] {subject}")
-        return
-    send_email(to, subject, html)
+        return False
+    return send_email(to, subject, html)
 
 
 def send_email(to_email: str, subject: str, html: str):
@@ -325,6 +326,11 @@ class FilterPresetCreate(BaseModel):
     status_filter: Optional[Literal["pending", "processing", "cleared"]] = None
     port: Optional[str] = None
     older_than_days: Optional[int] = Field(default=None, ge=0, le=365)
+
+
+class DigestSettings(BaseModel):
+    enabled: bool = False
+    hour: int = Field(default=8, ge=0, le=23)
 
 
 # ---------------- Auth Dependency ----------------
@@ -1119,6 +1125,144 @@ async def admin_delete_filter_preset(preset_id: str, _: dict = Depends(require_a
     return {"ok": True}
 
 
+# ---------------- Daily digest ----------------
+DIGEST_SETTINGS_ID = "digest"
+
+
+async def _get_digest_settings() -> dict:
+    doc = await db.app_settings.find_one({"_id": DIGEST_SETTINGS_ID})
+    if not doc:
+        doc = {"_id": DIGEST_SETTINGS_ID, "enabled": False, "hour": 8, "last_run_date": None}
+        await db.app_settings.insert_one(doc)
+    return doc
+
+
+async def _query_default_preset_apps() -> tuple[Optional[dict], List[dict]]:
+    preset = await db.filter_presets.find_one({"is_default": True}, {"_id": 0})
+    query = {}
+    if preset:
+        if preset.get("status_filter"):
+            query["status"] = preset["status_filter"]
+        if preset.get("port"):
+            query["port"] = preset["port"]
+        if preset.get("older_than_days") is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=preset["older_than_days"])).isoformat()
+            query["created_at"] = {"$lte": cutoff}
+    apps = await db.applications.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return preset, apps
+
+
+def _build_digest_html(preset: Optional[dict], apps: List[dict]) -> tuple[str, str]:
+    today_str = datetime.now(timezone.utc).strftime("%A, %b %d %Y")
+    if preset:
+        filter_summary = " · ".join(filter(None, [
+            preset.get("status_filter"),
+            preset.get("port"),
+            f"≥ {preset['older_than_days']}d" if preset.get("older_than_days") is not None else None,
+        ])) or "all applications"
+        preset_line = f"<strong>{preset['name']}</strong> · {filter_summary}"
+    else:
+        filter_summary = "all applications"
+        preset_line = "No default preset — showing all applications"
+
+    rows = ""
+    for a in apps[:30]:
+        age_days = ""
+        try:
+            created = datetime.fromisoformat(a["created_at"])
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age_days = f"{(datetime.now(timezone.utc) - created).days}d old"
+        except Exception:
+            pass
+        rows += f"""
+        <tr>
+          <td style='padding:10px;border-bottom:1px solid #E2E8F0;font-size:13px'>
+            <div style='font-weight:600;color:#0B1F3A'>{a.get('user_name','')}</div>
+            <div style='font-size:11px;color:#64748B'>{a.get('user_email','')}</div>
+          </td>
+          <td style='padding:10px;border-bottom:1px solid #E2E8F0;font-size:13px;color:#1A202C'>{a.get('cargo_type','')}</td>
+          <td style='padding:10px;border-bottom:1px solid #E2E8F0;font-size:13px;color:#1A202C'>{a.get('port','')}</td>
+          <td style='padding:10px;border-bottom:1px solid #E2E8F0;font-size:12px'>
+            <span style='background:#FBF5DD;color:#8C701D;padding:2px 8px;border-radius:999px;text-transform:capitalize'>{a.get('status','')}</span>
+          </td>
+          <td style='padding:10px;border-bottom:1px solid #E2E8F0;font-size:11px;color:#64748B'>{age_days}</td>
+        </tr>
+        """
+    if not apps:
+        rows = "<tr><td colspan='5' style='padding:24px;text-align:center;color:#94A3B8;font-size:13px'>No applications match this filter today. Nothing to chase.</td></tr>"
+
+    subject = f"JDOM Daily Digest · {len(apps)} shipments need eyes · {today_str}"
+    html = f"""
+    <div style='font-family:Arial,sans-serif;background:#F8F9FA;padding:24px'>
+      <div style='max-width:680px;margin:0 auto;background:#fff;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden'>
+        <div style='background:#0B1F3A;padding:24px;color:#fff'>
+          <div style='color:#D4AF37;text-transform:uppercase;letter-spacing:.18em;font-size:11px'>JDOM UNIVERSAL CONCEPT LTD · Daily Digest</div>
+          <h1 style='margin:8px 0 0;font-size:22px'>{len(apps)} shipment{'' if len(apps)==1 else 's'} need your eyes</h1>
+          <p style='margin:6px 0 0;color:#94A3B8;font-size:13px'>{today_str}</p>
+        </div>
+        <div style='padding:24px;color:#1A202C'>
+          <p style='margin:0 0 14px;font-size:13px;color:#475569'>Filter: {preset_line}</p>
+          <table style='width:100%;border-collapse:collapse;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden'>
+            <thead><tr style='background:#F1F4F9'>
+              <th style='padding:10px;text-align:left;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.08em'>Importer</th>
+              <th style='padding:10px;text-align:left;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.08em'>Cargo</th>
+              <th style='padding:10px;text-align:left;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.08em'>Port</th>
+              <th style='padding:10px;text-align:left;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.08em'>Status</th>
+              <th style='padding:10px;text-align:left;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.08em'>Age</th>
+            </tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+          {f"<p style='font-size:12px;color:#94A3B8;margin-top:14px'>Showing first 30 of {len(apps)} matches. Open the admin console for the full list.</p>" if len(apps) > 30 else ""}
+          <p style='margin-top:24px;font-size:12px;color:#94A3B8'>You're receiving this because the daily digest is enabled. Toggle it off any time in the Admin Console.</p>
+        </div>
+      </div>
+    </div>
+    """
+    return subject, html
+
+
+async def _run_digest():
+    preset, apps = await _query_default_preset_apps()
+    subject, html = _build_digest_html(preset, apps)
+    return send_admin_email(subject, html)
+
+
+@api.get("/admin/digest/settings")
+async def admin_get_digest_settings(_: dict = Depends(require_admin)):
+    doc = await _get_digest_settings()
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/digest/settings")
+async def admin_set_digest_settings(payload: DigestSettings, _: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"_id": DIGEST_SETTINGS_ID},
+        {"$set": {"enabled": payload.enabled, "hour": payload.hour}},
+        upsert=True,
+    )
+    doc = await db.app_settings.find_one({"_id": DIGEST_SETTINGS_ID})
+    doc.pop("_id", None)
+    return doc
+
+
+@api.post("/admin/digest/send")
+async def admin_send_digest_now(_: dict = Depends(require_admin)):
+    preset, apps = await _query_default_preset_apps()
+    subject, html = _build_digest_html(preset, apps)
+    ok = send_admin_email(subject, html)
+    await db.app_settings.update_one(
+        {"_id": DIGEST_SETTINGS_ID},
+        {"$set": {"last_run_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                  "last_run_at": datetime.now(timezone.utc).isoformat(),
+                  "last_run_count": len(apps),
+                  "last_run_manual": True}},
+        upsert=True,
+    )
+    return {"ok": bool(ok), "matched": len(apps), "preset": preset.get("name") if preset else None}
+
+
 @api.get("/")
 async def root():
     return {"service": "jdom-universal", "ok": True}
@@ -1134,6 +1278,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+_digest_task: Optional[asyncio.Task] = None
+
+
+async def _digest_scheduler_loop():
+    """Wakes up every 60s and fires the digest if enabled AND current UTC hour matches AND not yet run today."""
+    while True:
+        try:
+            settings = await db.app_settings.find_one({"_id": DIGEST_SETTINGS_ID})
+            if settings and settings.get("enabled"):
+                now = datetime.now(timezone.utc)
+                today = now.strftime("%Y-%m-%d")
+                if now.hour == int(settings.get("hour", 8)) and settings.get("last_run_date") != today:
+                    preset, apps = await _query_default_preset_apps()
+                    subject, html = _build_digest_html(preset, apps)
+                    ok = send_admin_email(subject, html)
+                    await db.app_settings.update_one(
+                        {"_id": DIGEST_SETTINGS_ID},
+                        {"$set": {"last_run_date": today,
+                                  "last_run_at": now.isoformat(),
+                                  "last_run_count": len(apps),
+                                  "last_run_manual": False,
+                                  "last_run_ok": bool(ok)}},
+                    )
+                    logger.info(f"Daily digest fired: matched={len(apps)} ok={ok}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Digest loop error: {e}")
+        await asyncio.sleep(60)
 
 
 @app.on_event("startup")
@@ -1231,7 +1406,15 @@ async def on_startup():
         ])
         logger.info(f"Seeded {len(defaults)} default templates")
 
+    # Start the daily-digest background scheduler
+    global _digest_task
+    _digest_task = asyncio.create_task(_digest_scheduler_loop())
+    logger.info("Daily digest scheduler started")
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    global _digest_task
+    if _digest_task and not _digest_task.done():
+        _digest_task.cancel()
     client.close()

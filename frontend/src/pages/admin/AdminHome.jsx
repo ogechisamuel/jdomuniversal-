@@ -1,17 +1,44 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Users, MessagesSquare, ClipboardList, ShieldCheck, Mail, MessageCircle, MessageSquareText, TrendingUp } from "lucide-react";
+import { ArrowRight, Users, MessagesSquare, ClipboardList, ShieldCheck, Mail, MessageCircle, MessageSquareText, TrendingUp, Clock, Send, Loader2 } from "lucide-react";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, XAxis, Cell } from "recharts";
-import api from "@/lib/api";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import api, { formatApiError } from "@/lib/api";
 
 export default function AdminHome() {
   const [stats, setStats] = useState(null);
   const [notif, setNotif] = useState(null);
+  const [digest, setDigest] = useState(null);
+  const [savingDigest, setSavingDigest] = useState(false);
+  const [sendingDigest, setSendingDigest] = useState(false);
 
   useEffect(() => {
     api.get("/admin/stats").then((r) => setStats(r.data));
     api.get("/admin/notification-analytics").then((r) => setNotif(r.data));
+    api.get("/admin/digest/settings").then((r) => setDigest(r.data));
   }, []);
+
+  const saveDigest = async (next) => {
+    setSavingDigest(true);
+    try {
+      const { data } = await api.put("/admin/digest/settings", next);
+      setDigest(data);
+      toast.success(next.enabled ? `Daily digest enabled · fires at ${next.hour}:00 UTC` : "Daily digest disabled");
+    } catch (e) { toast.error(formatApiError(e)); } finally { setSavingDigest(false); }
+  };
+
+  const sendDigestNow = async () => {
+    setSendingDigest(true);
+    try {
+      const { data } = await api.post("/admin/digest/send");
+      const { data: refreshed } = await api.get("/admin/digest/settings");
+      setDigest(refreshed);
+      toast.success(`Digest sent · ${data.matched} shipment${data.matched === 1 ? "" : "s"} included`);
+    } catch (e) { toast.error(formatApiError(e)); } finally { setSendingDigest(false); }
+  };
 
   if (!stats) return <div className="text-sm text-navy/55">Loading stats…</div>;
 
@@ -52,6 +79,65 @@ export default function AdminHome() {
           </Link>
         ))}
       </div>
+
+      {digest && (
+        <div className="card-flat p-5 grid lg:grid-cols-12 gap-6 items-start" data-testid="digest-card">
+          <div className="lg:col-span-5">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-gold-700">
+              <Clock className="h-3.5 w-3.5" /> Daily digest
+            </div>
+            <h2 className="font-heading text-xl text-navy mt-2">Wake up to your demurrage risk</h2>
+            <p className="text-sm text-navy/65 mt-2 leading-relaxed">
+              Every morning at your chosen hour, we run your <Link to="/admin/applications" className="text-gold-700 underline">default filter preset</Link> and email a summary of shipments needing eyes — straight to your admin inbox.
+            </p>
+            {digest.last_run_at && (
+              <p className="text-xs text-navy/55 mt-3" data-testid="digest-last-run">
+                Last sent: <strong>{new Date(digest.last_run_at).toLocaleString()}</strong> · {digest.last_run_count ?? 0} shipment{digest.last_run_count === 1 ? "" : "s"} included{digest.last_run_manual ? " · manual" : " · automatic"}
+              </p>
+            )}
+          </div>
+
+          <div className="lg:col-span-7 space-y-4">
+            <div className="flex items-center justify-between rounded-md border border-border bg-navy-50 px-4 py-3">
+              <div>
+                <div className="text-sm font-heading text-navy">Enable daily digest</div>
+                <p className="text-xs text-navy/55">Auto-emails the admin once per day, only when there is something in the default filter.</p>
+              </div>
+              <Switch
+                checked={!!digest.enabled}
+                disabled={savingDigest}
+                onCheckedChange={(v) => saveDigest({ enabled: v, hour: digest.hour ?? 8 })}
+                data-testid="digest-enabled-toggle"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-xs uppercase tracking-widest text-navy/55">Send hour (UTC)</label>
+                <Select
+                  value={String(digest.hour ?? 8)}
+                  onValueChange={(v) => saveDigest({ enabled: !!digest.enabled, hour: parseInt(v, 10) })}
+                >
+                  <SelectTrigger data-testid="digest-hour-select" className="mt-1.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 24 }).map((_, h) => (
+                      <SelectItem key={h} value={String(h)}>{String(h).padStart(2, "0")}:00 UTC</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={sendDigestNow} disabled={sendingDigest} className="bg-gold text-navy hover:bg-gold-400 font-semibold" data-testid="digest-send-now-btn">
+                {sendingDigest ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4" /> Send test now</>}
+              </Button>
+            </div>
+            {digest.enabled && (
+              <p className="text-xs text-gold-700 inline-flex items-center gap-1" data-testid="digest-status-on">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live · next dispatch at {String(digest.hour ?? 8).padStart(2, "0")}:00 UTC
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {notif && (
         <div className="grid lg:grid-cols-3 gap-4" data-testid="notification-analytics">
