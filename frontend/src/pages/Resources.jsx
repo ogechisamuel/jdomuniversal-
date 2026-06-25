@@ -7,9 +7,24 @@ import { Label } from "@/components/ui/label";
 import api, { formatApiError } from "@/lib/api";
 
 const RESOURCES = [
-  { title: "PAAR & Form M Checklist", desc: "Avoid the 7 most common rejections at NCS pre-clearance.", tag: "PDF · 1.2MB" },
-  { title: "Oil & Gas Cargo Documentation Guide", desc: "Step-by-step Onne free-zone documentation walk-through.", tag: "PDF · 2.4MB" },
-  { title: "SONCAP Compliance Cheat Sheet", desc: "Product categories, certificates, common pitfalls.", tag: "PDF · 0.9MB" },
+  {
+    title: "PAAR & Form M Checklist",
+    desc: "Avoid the 7 most common rejections at NCS pre-clearance.",
+    tag: "PDF",
+    url: "https://files.jdomuniversal.online/JDOM-PAAR-checklist.pdf",
+  },
+  {
+    title: "Oil & Gas Cargo Documentation Guide",
+    desc: "Step-by-step Onne free-zone documentation walk-through.",
+    tag: "PDF",
+    url: "https://files.jdomuniversal.online/JDOM-Oil-Gas-Guide.pdf",
+  },
+  {
+    title: "SONCAP Compliance Cheat Sheet",
+    desc: "Product categories, certificates, common pitfalls.",
+    tag: "PDF",
+    url: "https://files.jdomuniversal.online/JDOM-SONCAP-Compliance-Cheat-Sheet.pdf",
+  },
 ];
 
 export default function Resources() {
@@ -23,7 +38,7 @@ export default function Resources() {
     try {
       await api.post("/leads", { ...form, source: "resource_center", message: "Requested resource downloads." });
       setGranted(true);
-      toast.success("Access granted. Use the download buttons below.");
+      toast.success("Access granted. Tap any download button below.");
     } catch (err) {
       toast.error(formatApiError(err));
     } finally {
@@ -31,8 +46,9 @@ export default function Resources() {
     }
   };
 
-  const fakeDownload = (title) => {
-    toast.success(`${title} sent to ${form.email}`);
+  const handleDownload = (r) => {
+    toast.success(`Opening ${r.title}…`);
+    window.open(r.url, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -60,7 +76,7 @@ export default function Resources() {
                 </div>
                 <Button
                   disabled={!granted}
-                  onClick={() => fakeDownload(r.title)}
+                  onClick={() => handleDownload(r)}
                   className="bg-gold text-navy hover:bg-gold-400 disabled:opacity-50"
                   data-testid={`resource-download-${r.title}`}
                 >

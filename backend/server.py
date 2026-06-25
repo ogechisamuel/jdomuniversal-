@@ -145,7 +145,7 @@ def build_status_email_html(user_name: str, app_doc: dict, custom_message: Optio
           <p style='color:#1A202C;font-size:14px'>{s["msg"]}</p>
           {extra}
           {notes}
-          <p style='margin-top:24px;font-size:13px;color:#475569'>Need to chat? <a href='https://wa.me/message/KWLEOBTILCU7H1' style='color:#0B1F3A;text-decoration:underline'>WhatsApp our desk</a> or sign in to your dashboard.</p>
+          <p style='margin-top:24px;font-size:13px;color:#475569'>Need to chat? <a href='https://wa.me/2347064556109' style='color:#0B1F3A;text-decoration:underline'>WhatsApp our desk</a> or sign in to your dashboard.</p>
         </div>
         <div style='background:#0B1F3A;color:#94A3B8;padding:14px 24px;font-size:11px;text-align:center'>JDOM UNIVERSAL CONCEPT LTD · Apapa · Tin Can · Onne</div>
       </div>
