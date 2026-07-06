@@ -33,3 +33,9 @@ Thumbs.db
 /app/.emergent/
 *.log
 frontend/node_modules/.cache/default-development/11.pack
+.env.*
+credentials.json
+*.pem
+*.key
+.credentials
+frontend/node_modules/.cache/default-development/13.pack
